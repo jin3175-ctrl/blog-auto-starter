@@ -9,3 +9,8 @@ __pycache__/
 cookies*.json
 .DS_Store
 gen_*/
+# 에디 강사 개인 전략 문서는 배포하지 않는다 (수강생은 자기 것을 만든다)
+블로그자동/docs/블로그정체성*.md
+블로그자동/docs/에디AI블로그*.md
+블로그자동/docs/AI실전_소재뱅크*.md
+블로그자동/skills/
