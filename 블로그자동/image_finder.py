@@ -8,21 +8,50 @@ import re
 import urllib.parse
 import urllib.request
 
-# 홈판자료(비보호·launchd 접근 가능) 우선, 없으면 데스크탑 폴백
-ENV_PATH = next((os.path.expanduser(p) for p in
-                 ("~/홈판자료/.env", "~/Desktop/07-geumsajang-template/.env")
-                 if os.path.exists(os.path.expanduser(p))),
-                os.path.expanduser("~/홈판자료/.env"))
+# ── 키 찾는 곳 (수강생 배포판: 이 폴더 먼저, 그다음 옛 경로) ──
+_BASE = os.path.dirname(os.path.abspath(__file__))
+_PKG = os.path.dirname(_BASE)          # 패키지 루트(내정보.txt가 있는 곳)
 
 
 def _load_key(name: str = "UNSPLASH_ACCESS_KEY") -> str | None:
-    try:
-        with open(ENV_PATH, encoding="utf-8") as f:
-            for line in f:
-                if line.strip().startswith(name):
-                    return line.split("=", 1)[1].strip().strip('"').strip("'")
-    except Exception:  # noqa: BLE001
-        pass
+    """키를 순서대로 찾는다: 환경변수 → 내정보.txt → .env → 옛 경로.
+
+    수강생은 내정보.txt 한 파일만 채우면 된다. 없으면 None을 돌려주고,
+    부르는 쪽이 이미지 없이 [사진N] 마커만 남기고 넘어간다.
+    """
+    v = os.environ.get(name)
+    if v:
+        return v.strip()
+
+    # 내정보.txt — "제미나이 키: xxx" 처럼 콜론으로 적어도 읽는다
+    label = {"GEMINI_API_KEY": ("제미나이 키", "제미나이키"),
+             "UNSPLASH_ACCESS_KEY": ("사진 키", "언스플래시 키")}.get(name, ())
+    for info in (os.path.join(_PKG, "내정보.txt"), os.path.join(_BASE, "내정보.txt")):
+        try:
+            with open(info, encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#") or ":" not in line:
+                        continue
+                    k, val = line.split(":", 1)
+                    k, val = k.strip(), val.strip()
+                    if val.startswith("(") or not val:
+                        continue
+                    if k == name or k in label:
+                        return val
+        except Exception:  # noqa: BLE001
+            pass
+
+    # .env 파일들
+    for env in (os.path.join(_PKG, ".env"), os.path.join(_BASE, ".env"),
+                os.path.expanduser("~/홈판자료/.env")):
+        try:
+            with open(env, encoding="utf-8") as f:
+                for line in f:
+                    if line.strip().startswith(name):
+                        return line.split("=", 1)[1].strip().strip('"').strip("'")
+        except Exception:  # noqa: BLE001
+            pass
     return None
 
 
