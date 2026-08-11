@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>블로그 자동 발행 대시보드</title>
+<style>
+  :root { --bg:#0f1420; --card:#171e2e; --line:#26304a; --tx:#e7ecf5; --mut:#8a97b2;
+          --blue:#3b82f6; --green:#16a34a; --amber:#e0b53a; --red:#ef4444; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--tx);
+         font-family:'Apple SD Gothic Neo','Malgun Gothic',system-ui,sans-serif; }
+  .wrap { max-width:1080px; margin:0 auto; padding:24px 18px 60px; }
+  h1 { font-size:22px; margin:0 0 4px; }
+  .sub { color:var(--mut); font-size:13px; margin-bottom:20px; }
+  .bar { display:flex; flex-wrap:wrap; gap:10px; align-items:center;
+         background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px 16px; margin-bottom:16px; }
+  .badge { font-size:13px; padding:5px 12px; border-radius:20px; font-weight:700; }
+  .on { background:rgba(22,163,74,.18); color:#4ade80; }
+  .off { background:rgba(239,68,68,.18); color:#f87171; }
+  button { font-family:inherit; font-size:14px; font-weight:700; border:none; border-radius:10px;
+           padding:10px 16px; cursor:pointer; color:#fff; transition:.15s; }
+  button:disabled { opacity:.45; cursor:not-allowed; }
+  .b-blue{background:var(--blue)} .b-green{background:var(--green)}
+  .b-amber{background:var(--amber);color:#12224e} .b-ghost{background:#2a3550;color:var(--tx)}
+  button:not(:disabled):hover { filter:brightness(1.1); }
+  .spacer { flex:1; }
+  .log { background:#0a0e17; border:1px solid var(--line); border-radius:12px; padding:12px 14px;
+         font-family:ui-monospace,Menlo,monospace; font-size:12.5px; line-height:1.6; color:#b9c6e0;
+         max-height:240px; overflow:auto; white-space:pre-wrap; margin-bottom:18px; display:none; }
+  .log.show { display:block; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(320px,1fr)); gap:14px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; overflow:hidden; display:flex; flex-direction:column; }
+  .card img { width:100%; aspect-ratio:1/1; object-fit:cover; background:#0a0e17; }
+  .card .body { padding:12px 14px; flex:1; display:flex; flex-direction:column; gap:8px; }
+  .tag { align-self:flex-start; font-size:11px; font-weight:800; padding:3px 9px; border-radius:6px; }
+  .t-insight{background:rgba(224,181,58,.2);color:var(--amber)}
+  .t-celeb{background:rgba(59,130,246,.2);color:#93c5fd}
+  .t-shopping{background:rgba(22,163,74,.2);color:#4ade80}
+  .ttl { font-size:14px; font-weight:700; line-height:1.4; }
+  .no { color:var(--mut); font-size:12px; }
+  .row { display:flex; gap:8px; margin-top:auto; padding-top:6px; }
+  .row button { flex:1; padding:9px; font-size:13px; }
+  .empty { color:var(--mut); text-align:center; padding:50px 0; }
+  .hint { color:var(--mut); font-size:12px; margin:2px 0 14px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>블로그 자동 생성·발행 대시보드</h1>
+  <div class="sub" id="sub">불러오는 중…</div>
+
+  <div class="bar">
+    <span id="loginBadge" class="badge off">로그인 확인 중…</span>
+    <button class="b-ghost" id="btnLogin" onclick="doLogin()">네이버 로그인</button>
+    <div class="spacer"></div>
+    <button class="b-amber" id="btnGen" onclick="doGenerate()">오늘 10편 생성</button>
+    <button class="b-ghost" onclick="refresh()">새로고침</button>
+  </div>
+  <div class="hint">연예 8편은 초안(임시저장) 풀입니다. 하루에 다 공개하지 말고 2~3개씩 나눠 공개하세요. 인사이트만 매일 자동 공개 권장.</div>
+
+  <div class="log" id="log"></div>
+
+  <div id="grid" class="grid"></div>
+  <div id="empty" class="empty" style="display:none">
+    아직 오늘 생성된 원고가 없습니다. <b>[오늘 10편 생성]</b>을 눌러 시작하세요.
+  </div>
+</div>
+
+<script>
+let polling = false;
+
+async function api(path, method='GET') {
+  const r = await fetch(path, {method});
+  return r.json();
+}
+
+function typeClass(cat){ return cat==='insight'?'t-insight':(cat==='shopping'?'t-shopping':'t-celeb'); }
+
+function render(s) {
+  const lb = document.getElementById('loginBadge');
+  if (s.logged_in) { lb.className='badge on'; lb.textContent='로그인됨' + (s.blog_id?(' · '+s.blog_id):''); }
+  else { lb.className='badge off'; lb.textContent='로그인 필요'; }
+
+  document.getElementById('sub').textContent =
+    (s.date ? ('폴더: '+s.date+' · '+s.posts.length+'편') : '오늘 폴더 없음');
+
+  const job = s.job || {};
+  const running = job.running;
+  const logEl = document.getElementById('log');
+  if (job.logs && job.logs.length) {
+    logEl.classList.add('show');
+    logEl.textContent = (running ? '⏳ 실행 중…\n' : '') + job.logs.join('\n');
+    logEl.scrollTop = logEl.scrollHeight;
+  } else { logEl.classList.remove('show'); }
+
+  document.getElementById('btnGen').disabled = running;
+  document.getElementById('btnLogin').disabled = running;
+
+  const grid = document.getElementById('grid');
+  document.getElementById('empty').style.display = s.posts.length ? 'none':'block';
+  grid.innerHTML = s.posts.map(p => `
+    <div class="card">
+      ${p.has_thumb ? `<img src="/thumb/${p.no}?t=${Date.now()}" alt="">` : `<div style="aspect-ratio:1/1;display:flex;align-items:center;justify-content:center;color:#4a5573">썸네일 없음</div>`}
+      <div class="body">
+        <span class="tag ${typeClass(p.cat)}">${p.type}</span>
+        <div class="no">#${p.no}</div>
+        <div class="ttl">${escapeHtml(p.title)}</div>
+        <div class="row">
+          <button class="b-ghost" ${running?'disabled':''} onclick="doProcess('${p.no}',false)">임시저장</button>
+          <button class="b-green" ${running?'disabled':''} onclick="doProcess('${p.no}',true)">공개발행</button>
+        </div>
+      </div>
+    </div>`).join('');
+
+  if (running && !polling) startPolling();
+}
+
+function escapeHtml(s){ return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+async function refresh(){ render(await api('/api/state')); }
+
+function startPolling(){
+  if (polling) return;
+  polling = true;
+  (async function loop(){
+    while (polling) {
+      await new Promise(r=>setTimeout(r,1500));
+      const s = await api('/api/state');
+      render(s);
+      if (!s.job.running) { polling=false; break; }
+    }
+  })();
+}
+
+async function doLogin(){
+  const r = await api('/api/login','POST');
+  if (!r.ok) return alert(r.message);
+  startPolling(); refresh();
+}
+async function doGenerate(){
+  if (!confirm('오늘 10편(인사이트1·연예8·쇼핑1)을 생성합니다. 몇 분 걸립니다. 진행할까요?')) return;
+  const r = await api('/api/generate','POST');
+  if (!r.ok) return alert(r.message);
+  startPolling(); refresh();
+}
+async function doProcess(no, publish){
+  const label = publish ? '공개발행' : '임시저장';
+  if (!confirm(`#${no}편을 ${label}할까요?`)) return;
+  const r = await api('/api/process/'+no+(publish?'?publish=1':''),'POST');
+  if (!r.ok) return alert(r.message);
+  startPolling(); refresh();
+}
+
+refresh();
+setInterval(()=>{ if(!polling) refresh(); }, 5000);
+</script>
+</body>
+</html>

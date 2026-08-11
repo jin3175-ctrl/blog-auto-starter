@@ -1,0 +1,34 @@
+# ── 절대 커밋 금지: 로그인 세션·크롬 프로필·키 ──
+session/
+work/
+*.env
+.env*
+**/naver_state*.json
+**/*_state.json
+**/*profile/
+**/*_profile*/
+cookies*.json
+credentials*.json
+token*.json
+
+# 생성물(용량·개인정보) — 원고·이미지는 ~/홈판자료/블로그오토/ 에 남는다
+gen_*/
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.mp4
+
+# 파이썬
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# 맥·에디터
+.DS_Store
+.idea/
+.vscode/
+
+# Claude Code 로컬 설정(머신별)
+.claude/settings.local.json
