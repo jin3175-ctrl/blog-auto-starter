@@ -473,9 +473,10 @@ def _attach_stock_images(blocks: list[dict], workdir: str, log: Logger,
             attached += 1
             log(f"본문사진{n+1} Unsplash 실패 → Gemini 생성으로 대체")
         else:
-            # Unsplash·Gemini 모두 실패하면 마커 텍스트를 본문에 남기지 않고 제거(빈 줄 대체)
-            blocks[i] = {"type": "blank"}
-            log(f"본문사진{n+1} 이미지 없음(Unsplash·Gemini 실패) → 마커 제거")
+            # 수강생 배포판: 이미지가 안 붙어도 '어디에 넣어야 하는지'는 남긴다.
+            # (원본은 마커를 지웠지만, 키가 없는 사람은 자리 표시가 없으면 사진을 못 넣는다)
+            blocks[i] = {"type": "text", "text": f"[사진{n+1} - {descs[n]}]"}
+            log(f"본문사진{n+1} 이미지 없음 → 자리 표시만 남김(발행 전 직접 넣으세요)")
     log(f"본문 이미지 {attached}/{len(descs)}개 자동 첨부 완료")
     return attached
 
