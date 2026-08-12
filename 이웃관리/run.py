@@ -40,7 +40,15 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 WORK_DIR = os.path.join(BASE_DIR, "work")
 LEDGER = os.path.join(WORK_DIR, "ledger.json")
 DAILY = os.path.join(WORK_DIR, "daily.json")
-SESSION_DIR = "/Users/edi/블로그 체험단/session"
+# ── 로그인 세션 위치 (수강생 배포판) ──
+# 블로그자동에서 네이버 로그인을 하면 그 폴더의 session/ 에 저장된다. 그걸 그대로 쓴다.
+_BASE = os.path.dirname(os.path.abspath(__file__))
+_CANDS = [
+    os.path.join(os.path.dirname(_BASE), "블로그자동", "session"),   # 같은 패키지의 블로그자동
+    os.path.join(_BASE, "session"),                                   # 이웃관리 자체
+    os.path.expanduser("~/블로그 체험단/session"),                     # 체험단 패키지(있으면)
+]
+SESSION_DIR = next((p for p in _CANDS if os.path.isdir(p)), _CANDS[0])
 
 UA = (
     "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) "
