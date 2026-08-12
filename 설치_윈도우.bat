@@ -1,34 +1,87 @@
 @echo off
-chcp 65001 >nul
-cd /d %~dp0
+setlocal
+cd /d "%~dp0"
+title ºí·Î±× ÀÚµ¿È­ ¼³Ä¡
 echo ============================================
-echo   ë¸”ë¡œê·¸ ìžë™í™” ì„¤ì¹˜ (ìœˆë„ìš°) - 1íšŒë§Œ ì‹¤í–‰
+echo    ºí·Î±× ÀÚµ¿È­ ¼³Ä¡ - Ã³À½ ÇÑ ¹ø¸¸ ½ÇÇà
 echo ============================================
 echo.
+echo Áö±Ý Æú´õ: %CD%
+echo.
+
+set PY=
 where py >nul 2>nul
-if %errorlevel%==0 (set PY=py) else (set PY=python)
-%PY% --version >nul 2>nul
-if not %errorlevel%==0 (
-  echo [!] íŒŒì´ì¬ì´ ì—†ìŠµë‹ˆë‹¤. ë§ˆì´í¬ë¡œì†Œí”„íŠ¸ ìŠ¤í† ì–´ì—ì„œ "Python 3.12"ë¥¼
-  echo     ì„¤ì¹˜í•œ ë’¤ ì´ íŒŒì¼ì„ ë‹¤ì‹œ ë”ë¸”í´ë¦­í•˜ì„¸ìš”.
-  pause
-  exit /b 1
-)
-echo [1/4] íŒŒì´ì¬ í™•ì¸ ì™„ë£Œ
-echo [2/4] í•„ìš”í•œ ë¶€í’ˆ ì„¤ì¹˜ ì¤‘... (ëª‡ ë¶„ ê±¸ë¦½ë‹ˆë‹¤)
-%PY% -m pip install --user playwright requests pillow
-echo [3/4] í¬ë¡¬ ë¸Œë¼ìš°ì € ë¶€í’ˆ ì„¤ì¹˜ ì¤‘... (ëª‡ ë¶„ ê±¸ë¦½ë‹ˆë‹¤)
-%PY% -m playwright install chromium
-echo [4/4] í´ë¡œë“œ ì½”ë“œ ì„¤ì¹˜ ì¤‘... (ì´ë¯¸ ìžˆìœ¼ë©´ ê±´ë„ˆëœë‹ˆë‹¤)
+if %errorlevel%==0 set PY=py
+if defined PY goto HAVEPY
+where python >nul 2>nul
+if %errorlevel%==0 set PY=python
+if defined PY goto HAVEPY
+goto NOPY
+
+:HAVEPY
+"%PY%" --version >nul 2>nul
+if errorlevel 1 goto NOPY
+echo [1/4] ÆÄÀÌ½ã È®ÀÎ ¿Ï·á
+echo.
+
+echo [2/4] ÇÊ¿äÇÑ ºÎÇ°À» ¼³Ä¡ÇÕ´Ï´Ù. ¸î ºÐ °É¸³´Ï´Ù...
+"%PY%" -m pip install --user --quiet playwright requests pillow
+if errorlevel 1 goto PIPFAIL
+echo      ¿Ï·á
+echo.
+
+echo [3/4] Å©·Ò ºÎÇ°À» ¼³Ä¡ÇÕ´Ï´Ù. ¸î ºÐ °É¸³´Ï´Ù...
+"%PY%" -m playwright install chromium
+if errorlevel 1 goto PWFAIL
+echo      ¿Ï·á
+echo.
+
+echo [4/4] Å¬·Îµå ÄÚµå¸¦ ¼³Ä¡ÇÕ´Ï´Ù...
 where claude >nul 2>nul
-if not %errorlevel%==0 (
-  powershell -ExecutionPolicy Bypass -c "irm https://claude.ai/install.ps1 | iex"
-)
+if %errorlevel%==0 goto HAVECLAUDE
+powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://claude.ai/install.ps1 | iex"
+goto DONE
+
+:HAVECLAUDE
+echo      ÀÌ¹Ì ¼³Ä¡µÇ¾î ÀÖ½À´Ï´Ù
+goto DONE
+
+:DONE
 echo.
 echo ============================================
-echo   ì„¤ì¹˜ ì™„ë£Œ! ë‹¤ìŒ ìˆœì„œ:
-echo   1. ë©”ëª¨ìž¥ìœ¼ë¡œ "ë‚´ì •ë³´.txt" ì—´ì–´ ë‚´ ë¸”ë¡œê·¸ID ë„£ê¸°
-echo   2. "ë¸”ë¡œê·¸ìžë™_ì‹œìž‘_ìœˆë„ìš°.bat" ë”ë¸”í´ë¦­
-echo   3. "ë„¤ì´ë²„ ë¡œê·¸ì¸ ì‹œì¼œì¤˜" ë¼ê³  ë§í•˜ê¸°
+echo    ¼³Ä¡°¡ ³¡³µ½À´Ï´Ù!
+echo.
+echo    ´ÙÀ½ ¼ø¼­
+echo    1. ¸Þ¸ðÀåÀ¸·Î ³»Á¤º¸.txt ¸¦ ¿­¾î ºí·Î±×ID ³Ö±â
+echo    2. ºí·Î±×ÀÚµ¿_½ÃÀÛ_À©µµ¿ì ÆÄÀÏ ´õºíÅ¬¸¯
 echo ============================================
+echo.
 pause
+exit /b 0
+
+:NOPY
+echo.
+echo [!] ÆÄÀÌ½ãÀÌ ¼³Ä¡µÇ¾î ÀÖÁö ¾Ê½À´Ï´Ù.
+echo.
+echo     1. ½ÃÀÛ - Microsoft Store ¿­±â
+echo     2. Python 3.12 °Ë»öÇØ¼­ ¼³Ä¡
+echo     3. ÀÌ ÆÄÀÏÀ» ´Ù½Ã ´õºíÅ¬¸¯
+echo.
+pause
+exit /b 1
+
+:PIPFAIL
+echo.
+echo [!] ºÎÇ° ¼³Ä¡¿¡ ½ÇÆÐÇß½À´Ï´Ù. ÀÎÅÍ³Ý ¿¬°áÀ» È®ÀÎÇÏ°í ´Ù½Ã ÇØº¸¼¼¿ä.
+echo     °è¼Ó ¾È µÇ¸é ÀÌ È­¸éÀ» »çÁø Âï¾î ´ÜÅå¹æ¿¡ ¿Ã·ÁÁÖ¼¼¿ä.
+echo.
+pause
+exit /b 1
+
+:PWFAIL
+echo.
+echo [!] Å©·Ò ºÎÇ° ¼³Ä¡¿¡ ½ÇÆÐÇß½À´Ï´Ù. ÀÎÅÍ³Ý ¿¬°áÀ» È®ÀÎÇÏ°í ´Ù½Ã ÇØº¸¼¼¿ä.
+echo     °è¼Ó ¾È µÇ¸é ÀÌ È­¸éÀ» »çÁø Âï¾î ´ÜÅå¹æ¿¡ ¿Ã·ÁÁÖ¼¼¿ä.
+echo.
+pause
+exit /b 1
