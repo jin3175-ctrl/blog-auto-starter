@@ -12,6 +12,6 @@ python3 -m playwright install chromium
 echo "[4/4] 클로드 코드 설치 중..."
 command -v claude >/dev/null 2>&1 || [ -x "$HOME/.local/bin/claude" ] || curl -fsSL https://claude.ai/install.sh | bash
 echo "============================================"
-echo "  설치 완료! 내정보.txt 채우고 블로그자동_시작_맥.command 더블클릭"
+echo "  설치 완료! 내정보.txt 채우고 대시보드_시작_맥.command 더블클릭"
 echo "============================================"
 read -p "엔터를 누르면 닫힙니다"
