@@ -7,9 +7,9 @@
   그래서 기계적인 클릭 패턴이 안 생기고, 잘못된 댓글이 나갈 일도 없다.
 
 사용법:
-  python3 run.py --blog hsh-2022                 # 오늘치(기본 30명)
-  python3 run.py --blog hsh-2022 --limit 10
-  python3 run.py --blog hsh-2022 --dry           # 아무것도 입력하지 않고 화면만 점검
+  python3 run.py                               # 오늘치(기본 30명)
+  python3 run.py --limit 10
+  python3 run.py --dry                         # 아무것도 입력하지 않고 화면만 점검
 
 ★터미널을 볼 필요가 없다. 브라우저 창 하나에서 끝난다.
   화면 맨 위 띠가 지금 뭘 하면 되는지 알려준다.
@@ -27,6 +27,14 @@
 """
 
 import argparse
+
+# ── 수강생 배포판: 내 블로그 정보는 내정보.txt 에서 읽는다 ──
+# 🔴예전엔 에디님 블로그ID가 코드에 박혀 있었다. 그대로 두면 수강생이 실행할 때
+#    남의 블로그로 간다(2026-08-19 배포 직전에 발견).
+import sys as _sys, os as _os
+_sys.path.insert(0, _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "..", "블로그자동"))
+import myinfo  # noqa: E402
+
 import csv
 import glob
 import json
@@ -82,7 +90,7 @@ def save_json(path, data):
 
 
 def session_file(blog_id):
-    name = "naver_state.json" if blog_id == "hsh-2022" else f"naver_state_{blog_id}.json"
+    name = f"naver_state_{blog_id}.json"
     return os.path.join(SESSION_DIR, name)
 
 
@@ -264,7 +272,7 @@ def open_buddy_form(page, target_blog, message="", dry=False):
 
 def main():
     ap = argparse.ArgumentParser(description="이웃관리 3단계 — 반자동(최종 클릭은 사람)")
-    ap.add_argument("--blog", default="hsh-2022")
+    ap.add_argument("--blog", default="", help="내 블로그 id (비우면 내정보.txt에서 읽습니다)")
     ap.add_argument("--csv", default="", help="초안 CSV (없으면 가장 최근)")
     ap.add_argument("--limit", type=int, default=DAILY_CAP)
     ap.add_argument("--dry", action="store_true", help="입력·신청 없이 화면 구조만 점검")
@@ -274,6 +282,7 @@ def main():
         help="댓글은 건너뛰고 서이추만. **이미 댓글을 주고받은 사람**에게 쓴다(수락률이 가장 높은 자리).",
     )
     args = ap.parse_args()
+    args.blog = args.blog or myinfo.blog_id()   # 비었으면 내정보.txt
 
     limit = min(args.limit, DAILY_CAP)
     today = date.today().isoformat()

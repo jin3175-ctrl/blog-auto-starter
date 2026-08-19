@@ -10,9 +10,9 @@
   ② 내 블로그 방문자 — 내 최근 글에 댓글 단 사람 (로그인 필요, 화면에서 읽음)
 
 사용법:
-  python3 collect.py --blog hsh-2022 --keywords "부천 맛집,신중동 맛집"
-  python3 collect.py --blog hsh-2022 --visitors --posts 10
-  python3 collect.py --blog ioiykd8599 --keywords "AI 자동화" --visitors
+  python3 collect.py --keywords "부천 맛집,신중동 맛집"   # 내 블로그ID는 내정보.txt에서 읽습니다
+  python3 collect.py --visitors --posts 10
+  python3 collect.py --keywords "AI 자동화" --visitors
 
 결과:
   work/후보_<blog>_<날짜>.csv   — 사람이 눈으로 보고 고르는 목록
@@ -23,6 +23,14 @@
 """
 
 import argparse
+
+# ── 수강생 배포판: 내 블로그 정보는 내정보.txt 에서 읽는다 ──
+# 🔴예전엔 에디님 블로그ID가 코드에 박혀 있었다. 그대로 두면 수강생이 실행할 때
+#    남의 블로그로 간다(2026-08-19 배포 직전에 발견).
+import sys as _sys, os as _os
+_sys.path.insert(0, _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "..", "블로그자동"))
+import myinfo  # noqa: E402
+
 import csv
 import html
 import json
@@ -56,7 +64,9 @@ UA = (
 )
 
 # 내 계정들 — 후보에서 항상 제외한다.
-MY_BLOGS = {"hsh-2022", "ioiykd8599"}
+# 🔴수강생 배포판: 내 블로그는 내정보.txt 에서. 내 글에 내가 댓글 다는 걸 막는 용도다.
+def MY_BLOGS():
+    return {myinfo.blog_id()}
 
 # 결이 아예 다른 글은 걸러낸다. 이웃 수를 빨리 늘리는 것보다 **답방 오는 이웃**이 중요하다.
 # (검색 키워드를 넓히면 키즈카페·학원·분양 글이 섞여 들어온다 — 실측)
@@ -73,7 +83,7 @@ def log(msg):
 
 
 def session_file(blog_id):
-    name = "naver_state.json" if blog_id == "hsh-2022" else f"naver_state_{blog_id}.json"
+    name = f"naver_state_{blog_id}.json"
     return os.path.join(SESSION_DIR, name)
 
 
@@ -155,7 +165,7 @@ def search_top_blogs(keyword, limit=15, exclude=None, require=""):
     out, seen_blog, dropped = [], set(), 0
     for u in order:
         h = seen_url[u]
-        if h["blogId"] in MY_BLOGS or h["blogId"] in seen_blog:
+        if h["blogId"] in MY_BLOGS() or h["blogId"] in seen_blog:
             continue
         hay = f"{h['title']} {h['snippet']}"
         if any(w in hay for w in ex):
@@ -256,7 +266,7 @@ def collect_commenters(blog_id, posts, headless=True):
                 )
                 for r in rows:
                     bid = r.get("blogId", "")
-                    if not bid or bid in MY_BLOGS or bid in found:
+                    if not bid or bid in MY_BLOGS() or bid in found:
                         continue
                     found[bid] = {
                         "blogId": bid,
@@ -279,7 +289,7 @@ def collect_commenters(blog_id, posts, headless=True):
 
 def main():
     ap = argparse.ArgumentParser(description="이웃관리 1단계 — 후보 수집(읽기 전용)")
-    ap.add_argument("--blog", default="hsh-2022", help="내 블로그 id (hsh-2022 | ioiykd8599)")
+    ap.add_argument("--blog", default="", help="내 블로그 id (비우면 내정보.txt에서 읽습니다)")
     ap.add_argument("--keywords", default="", help="검색 키워드, 쉼표로 구분")
     ap.add_argument("--areas", default="", help="지역 목록 (--kinds와 곱해 키워드를 만든다)")
     ap.add_argument("--kinds", default="", help="업종 목록 (--areas와 곱해 키워드를 만든다)")
@@ -295,6 +305,7 @@ def main():
     )
     ap.add_argument("--show", action="store_true", help="브라우저를 눈에 보이게(디버그)")
     args = ap.parse_args()
+    args.blog = args.blog or myinfo.blog_id()   # 비었으면 내정보.txt
 
     # 1000명 서이추를 하려면 후보가 2,000~3,000곳 필요한데
     # 키워드 하나로는 30곳이 한계다 → 지역 × 업종으로 키워드를 불려서 푼다.

@@ -11,7 +11,7 @@
 사용법:
   python3 draft.py                          # 가장 최근 후보 CSV, 상위 10곳
   python3 draft.py --csv work/후보_xxx.csv --limit 15
-  python3 draft.py --blog ioiykd8599        # 내 소개 톤을 에디 블로그로
+  python3 draft.py                          # 내 소개는 내정보.txt에서 읽습니다
 
 결과:
   work/초안_<날짜>.csv   — blogId · 글제목 · URL · 댓글초안 · 서이추메시지 · 본문요약
@@ -20,6 +20,14 @@
 """
 
 import argparse
+
+# ── 수강생 배포판: 내 블로그 정보는 내정보.txt 에서 읽는다 ──
+# 🔴예전엔 에디님 블로그ID가 코드에 박혀 있었다. 그대로 두면 수강생이 실행할 때
+#    남의 블로그로 간다(2026-08-19 배포 직전에 발견).
+import sys as _sys, os as _os
+_sys.path.insert(0, _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "..", "블로그자동"))
+import myinfo  # noqa: E402
+
 import csv
 import glob
 import json
@@ -40,21 +48,14 @@ UA = (
 )
 
 # 내가 누구인지 — 서이추 메시지에 "왜 이웃하고 싶은지"를 구체적으로 쓰려면 필요하다.
-ME = {
-    "hsh-2022": {
-        # ⚠️내 사는 지역을 밝히지 않는다(에디님 지시).
-        #   후보가 대구·제주·광명 등 전국에 흩어져 있어서 "저희도 부천에서…"는 상대와 상관없는 말이 되고,
-        #   내 위치를 굳이 알릴 이유도 없다.
-        "name": "가봄사봄",
-        "who": "부부가 함께 다녀온 맛집과 체험단 후기를 쓰는 블로그",
-        "topic": "맛집·카페·체험단 후기",
-    },
-    "ioiykd8599": {
-        "name": "AI 에디",
-        "who": "AI와 자동화를 실제로 써보고 기록하는 블로그",
-        "topic": "AI 도구·업무 자동화·클로드 코드",
-    },
-}
+# 내가 누구인지 — 서이추 인사말에 "왜 이웃하고 싶은지"를 쓰려면 필요하다.
+# 🔴수강생 배포판: 내정보.txt 에서 읽는다. 예전엔 특정 블로그가 코드에 박혀 있었다.
+# ⚠️사는 지역을 밝히지 않는다 — 후보가 전국에 흩어져 있어 상대와 상관없는 말이 되고,
+#   내 위치를 굳이 알릴 이유도 없다.
+def me(blog_id=None):
+    return {"name": myinfo.blog_name(),
+            "who":  myinfo.blog_who(),
+            "topic": myinfo.topic() or myinfo.blog_who()}
 
 
 def log(msg):
@@ -233,13 +234,12 @@ def check(comment, buddy=""):
 def main():
     ap = argparse.ArgumentParser(description="이웃관리 2단계 — 댓글·서이추 초안(올리지 않음)")
     ap.add_argument("--csv", default="", help="후보 CSV 경로 (없으면 가장 최근 것)")
-    ap.add_argument("--blog", default="hsh-2022", help="내 블로그 id — 소개 톤이 달라진다")
+    ap.add_argument("--blog", default="", help="내 블로그 id (비우면 내정보.txt에서 읽습니다)")
     ap.add_argument("--limit", type=int, default=10, help="몇 곳까지 초안을 만들지")
     args = ap.parse_args()
+    args.blog = args.blog or myinfo.blog_id()   # 비었으면 내정보.txt
 
-    me = ME.get(args.blog)
-    if not me:
-        ap.error(f"모르는 블로그 id: {args.blog} (hsh-2022 | ioiykd8599)")
+    prof = me(args.blog)          # 내정보.txt 에서 읽은 내 소개
 
     path = args.csv
     if not path:
@@ -286,7 +286,7 @@ def main():
             skip("본문 못 읽음(비공개·삭제 가능)")
             continue
 
-        comment, buddy, err = make_draft(me, bid, title, body)
+        comment, buddy, err = make_draft(prof, bid, title, body)
         flags = [err] if err else check(comment, buddy)
         log(f"  ({i}/{len(rows)}) {bid} — {'⚠ ' + ', '.join(flags) if flags else '✅'} {comment[:40]}")
         out_rows.append(

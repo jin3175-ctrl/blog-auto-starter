@@ -9,14 +9,22 @@
 ★스크립트는 '등록'을 절대 누르지 않는다. 답글창을 열고 초안을 채워놓는 데까지만 한다.
 
 사용법:
-  python3 reply.py --blog hsh-2022 --posts 10        # 답글 달 댓글 찾아 초안까지
-  python3 reply.py --blog hsh-2022 --dry             # 아무것도 입력 안 하고 점검만
+  python3 reply.py --posts 10                        # 답글 달 댓글 찾아 초안까지
+  python3 reply.py --dry                             # 아무것도 입력 안 하고 점검만
 
 내 블로그에서 하는 일이라 남의 블로그에 다는 것보다 위험이 훨씬 낮다.
 그래도 답글 내용은 사람이 보고 누른다.
 """
 
 import argparse
+
+# ── 수강생 배포판: 내 블로그 정보는 내정보.txt 에서 읽는다 ──
+# 🔴예전엔 에디님 블로그ID가 코드에 박혀 있었다. 그대로 두면 수강생이 실행할 때
+#    남의 블로그로 간다(2026-08-19 배포 직전에 발견).
+import sys as _sys, os as _os
+_sys.path.insert(0, _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "..", "블로그자동"))
+import myinfo  # noqa: E402
+
 import html
 import json
 import os
@@ -40,10 +48,9 @@ UA = (
     "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
 )
 
-ME = {
-    "hsh-2022": {"name": "가봄사봄", "who": "부부가 함께 다녀온 맛집과 체험단 후기를 쓰는 블로그"},
-    "ioiykd8599": {"name": "AI 에디", "who": "AI와 자동화를 실제로 써보고 기록하는 블로그"},
-}
+# 🔴수강생 배포판: 내정보.txt 에서 읽는다.
+def me(blog_id=None):
+    return {"name": myinfo.blog_name(), "who": myinfo.blog_who()}
 
 
 def log(msg):
@@ -67,7 +74,7 @@ def save_json(p, data):
 
 
 def session_file(blog_id):
-    name = "naver_state.json" if blog_id == "hsh-2022" else f"naver_state_{blog_id}.json"
+    name = f"naver_state_{blog_id}.json"
     return os.path.join(SESSION_DIR, name)
 
 
@@ -189,13 +196,14 @@ def banner(page, text, color="#03c75a"):
 
 def main():
     ap = argparse.ArgumentParser(description="내 글 댓글에 답글 달기(반자동)")
-    ap.add_argument("--blog", default="hsh-2022")
+    ap.add_argument("--blog", default="", help="내 블로그 id (비우면 내정보.txt에서 읽습니다)")
     ap.add_argument("--posts", type=int, default=10, help="훑을 내 최근 글 수")
     ap.add_argument("--limit", type=int, default=20, help="한 번에 처리할 댓글 수")
     ap.add_argument("--dry", action="store_true")
     args = ap.parse_args()
+    args.blog = args.blog or myinfo.blog_id()   # 비었으면 내정보.txt
 
-    me = ME.get(args.blog)
+    me = me(args.blog)
     if not me:
         ap.error(f"모르는 블로그: {args.blog}")
 

@@ -58,3 +58,13 @@ def category() -> str:
 
 def topic() -> str:
     return get("내 블로그 주제")
+
+
+def blog_name() -> str:
+    """블로그 이름. 안 적었으면 블로그ID를 그대로 쓴다."""
+    return get("내 블로그 이름") or get("내 블로그ID") or "제 블로그"
+
+
+def blog_who() -> str:
+    """이웃신청 인사말에 들어가는 한 줄 소개."""
+    return get("내 블로그 한줄소개") or (f"{topic()}을 기록하는 블로그" if topic() else "블로그")

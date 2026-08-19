@@ -5,7 +5,7 @@
 ## 원칙 — 이거 어기면 계정 날아간다
 
 자동 댓글·자동 서이추는 네이버가 대놓고 잡는 패턴이고, 운영정책 위반이다.
-걸리면 글이 아니라 **계정이 저품질**로 간다. 가봄사봄은 체험단 밥줄이고 에디 블로그는 애드포스트 수입이 붙어 있으니,
+걸리면 글이 아니라 **계정이 저품질**로 간다. 블로그 하나 키우는 데 몇 달이 걸립니다. 계정을 잃으면 그게 다 사라지니,
 **도구 하나 만들자고 그 둘을 걸면 안 된다.**
 
 그래서 위험한 단계를 맨 뒤에 둔다.
@@ -29,13 +29,13 @@
 
 ```bash
 # 검색 상위 블로그
-python3 collect.py --blog hsh-2022 --keywords "부천 맛집,신중동 맛집"
+python3 collect.py --keywords "부천 맛집,신중동 맛집"   # 내 블로그ID는 내정보.txt에서 읽습니다
 
 # 내 글에 댓글 단 사람
-python3 collect.py --blog hsh-2022 --visitors --posts 15
+python3 collect.py  --visitors --posts 15
 
 # 둘 다
-python3 collect.py --blog ioiykd8599 --keywords "AI 자동화" --visitors
+python3 collect.py --keywords "AI 자동화" --visitors
 ```
 
 출처 2가지:
@@ -72,7 +72,7 @@ python3 collect.py --blog ioiykd8599 --keywords "AI 자동화" --visitors
 후보의 **글 본문을 실제로 읽고** 그 내용에 대한 댓글을 만든다. 생성은 `claude -p`.
 
 ```bash
-python3 draft.py --blog hsh-2022 --limit 12
+python3 draft.py  --limit 12
 ```
 
 - 끝에 **질문 하나**를 붙인다 — 답글이 오면 그게 교류의 시작이다.
@@ -84,8 +84,8 @@ python3 draft.py --blog hsh-2022 --limit 12
 ## 3단계 — 반자동 실행 (`run.py`)
 
 ```bash
-python3 run.py --blog hsh-2022            # 오늘치
-python3 run.py --blog hsh-2022 --dry      # 입력·신청 없이 화면만 점검
+python3 run.py             # 오늘치
+python3 run.py  --dry      # 입력·신청 없이 화면만 점검
 ```
 
 ★**스크립트는 등록·확인 버튼을 절대 누르지 않는다.** 글을 열고 초안을 채워놓는 데까지만 한다.
