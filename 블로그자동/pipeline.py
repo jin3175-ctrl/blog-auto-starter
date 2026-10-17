@@ -740,8 +740,14 @@ def process_post(post_no: str, log: Logger, publish: bool = False, folder: str |
 
     action = "공개 발행" if publish else "임시저장"
     log(f"네이버 스마트에디터로 {action}을 시작합니다…")
-    result = naver.save_draft(title, blocks, png_map.get("썸네일"), log, publish=publish,
-                              category=category, reserve_at=reserve_at)
+    import browser_upload
+    if browser_upload.mode() != "chrome" and not publish:
+        # 🔴2026-10-17: 맥은 에고라이트 · 윈도우는 어사이드(크롬 대신). 임시저장까지만.
+        result = browser_upload.save_draft(title, blocks, png_map.get("썸네일"), log,
+                                           category=category, post_no=post_no, folder=folder)
+    else:
+        result = naver.save_draft(title, blocks, png_map.get("썸네일"), log, publish=publish,
+                                  category=category, reserve_at=reserve_at)
 
     result.setdefault("notes", [])
     result["title"] = title

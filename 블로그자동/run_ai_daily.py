@@ -359,7 +359,10 @@ def main(ai_count: int = 3, celeb_count: int = 4, celeb_story_count: int = 0,
     #   업로드에서 0/6으로 전멸했다. 만료면 지금 알리고 멈춘다(생성 자체를 낭비하지 않는다).
     if not gen_only:
         import naver as _nv
-        if not _nv.session_alive(_log):
+        import browser_upload as _bu
+        _sok, _why = _bu.session_ok(_log)
+        if not _sok:
+            _log("[로그인] " + _why)
             _log("[중단] 네이버 세션 만료 — 생성 전에 감지. 재로그인 후 다시 실행하세요.")
             _alert("네이버 세션 만료 — 오늘 블로그 생성 안 함",
                    "재로그인 후 'python3 run_ai_daily.py --ai 4 --shop 1 --celeb 1'을 실행하세요.")
@@ -379,7 +382,8 @@ def main(ai_count: int = 3, celeb_count: int = 4, celeb_story_count: int = 0,
     import naver
     import pipeline
 
-    if not naver.session_alive(_log):   # 파일 존재가 아니라 '실제 유효성'을 본다
+    import browser_upload
+    if not browser_upload.session_ok(_log)[0]:   # 파일 존재가 아니라 '실제 유효성'을 본다
         _log("[중단] 네이버 로그인 세션 없음/만료 → 생성물은 폴더에 남아있습니다. "
              "재로그인 후 다시 발행하세요.")
         _alert("네이버 세션 만료 — 오늘 블로그 미발행",
