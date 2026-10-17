@@ -27,6 +27,7 @@ python3 blog_report.py --preview  # 결산 리포트(메일 없이 출력)
 ```
 
 특정 편만 다시 올리기(생성물 재사용):
+> ⚠️ 수강생 패키지는 `config.AUTO_PUBLISH = False`(임시저장만)다. 아래처럼 `publish=True`를 넘겨도 임시저장으로 바뀐다. 예약 발행은 3주차에 스위치를 켜고 쓴다.
 ```python
 import pipeline, run_ai_daily as R
 from datetime import datetime, timedelta

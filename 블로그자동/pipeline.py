@@ -580,6 +580,9 @@ def _strip_greeting_intro(body: str, log=lambda m: None) -> str:
 
 def process_post(post_no: str, log: Logger, publish: bool = False, folder: str | None = None,
                  category: str = "", reserve_at=None) -> dict:
+    if (publish or reserve_at) and not getattr(config, "AUTO_PUBLISH", False):
+        log("발행 스위치 꺼짐(config.AUTO_PUBLISH=False) → 임시저장만 합니다.")
+        publish, reserve_at = False, None
     folder = folder or config.resolve_date_folder()
     if not folder:
         return {"ok": False, "message": "원고 폴더를 찾을 수 없습니다."}

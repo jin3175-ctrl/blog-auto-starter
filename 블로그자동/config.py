@@ -19,6 +19,11 @@ BLOG_META_FILE = os.path.join(SESSION_DIR, "naver_meta.json")
 os.makedirs(SESSION_DIR, exist_ok=True)
 os.makedirs(WORK_DIR, exist_ok=True)
 
+# ★발행 스위치(2026-10-17 · 3기 2주차): 수강생 패키지는 **임시저장만** 한다.
+#   False면 publish=True·예약 시각을 넘겨도 전부 임시저장으로 바뀐다(pipeline.process_post에서 막음).
+#   예약 발행은 3주차에 직접 True로 바꾸며 배운다.
+AUTO_PUBLISH = False
+
 
 def today_str() -> str:
     return date.today().strftime("%Y%m%d")

@@ -2,8 +2,8 @@
 """에디 AI 블로그 하루치 자동 생성 → 발행/임시저장 (ioiykd8599 = 40대 가장의 AI 생존기).
 
 하루 8편 (2026-08-10 확정 · 이번 달 애드포스트 100만원 목표):
-  01~03 = AI 실전글(gen_ai)          → 자동 예약 발행
-  04    = 쇼핑커넥트(gen_shopping)    → 자동 예약 발행
+  01~03 = AI 실전글(gen_ai)          → 임시저장 (config.AUTO_PUBLISH=True일 때만 예약 발행)
+  04    = 쇼핑커넥트(gen_shopping)    → 임시저장 (config.AUTO_PUBLISH=True일 때만 예약 발행)
   05~08 = 연예 90%+AI 10%(gen_celeb_ai mode=celeb_ai10) → **임시저장**(사진은 에디님이 직접 삽입)
 
 ★배치는 새벽 01:30에 시작해 05:40 전후 종료(생성·업로드는 조용히 새벽에).
@@ -346,8 +346,11 @@ def main(ai_count: int = 3, celeb_count: int = 4, celeb_story_count: int = 0,
             _log(f"[dry] 쇼핑커넥트 {shop_count}편: 시의성 소비재 → 구매가이드 + [커넥트-제품] 자동삽입(카테고리 '{CAT_SHOP}')")
         _log(f"[dry] 연예90/AI10 {celeb_count}편(홈판 온램프)은 1순위 소재 우선, 사망·범죄·비방 제외")
         _log(f"[dry] 업로드는 편당 {stagger//60}분 간격(velocity 분산)")
-        _rt = _reserve_times(ai_count + shop_count)
-        _log("[dry] AI·쇼핑 예약 발행 시각: " + (", ".join(t.strftime("%H:%M") for t in _rt) or "없음"))
+        if config.AUTO_PUBLISH:
+            _rt = _reserve_times(ai_count + shop_count)
+            _log("[dry] AI·쇼핑 예약 발행 시각: " + (", ".join(t.strftime("%H:%M") for t in _rt) or "없음"))
+        else:
+            _log("[dry] AI·쇼핑도 임시저장만(발행 스위치 꺼짐 · config.AUTO_PUBLISH=False)")
         _log(f"[dry] 연예 {celeb_count}편 = 이슈 {celeb_count - min(celeb_info_count, celeb_count)}"
              f" + 정보형 {min(celeb_info_count, celeb_count)} → 임시저장(사진은 직접 삽입)")
         return 0
@@ -386,7 +389,8 @@ def main(ai_count: int = 3, celeb_count: int = 4, celeb_story_count: int = 0,
 
     ok = 0
     # 자동 발행할 편(AI·쇼핑)의 예약 시각을 **한 번에** 낮 슬롯으로 배정한다.
-    _pub_slots = _reserve_times(sum(1 for _, c in made if c != CAT_CELEB))
+    _pub_slots = (_reserve_times(sum(1 for _, c in made if c != CAT_CELEB))
+                  if config.AUTO_PUBLISH else [])
     if _pub_slots:
         _log("예약 발행 시각: " + ", ".join(t.strftime("%H:%M") for t in _pub_slots))
     _slot_i = 0
@@ -399,7 +403,7 @@ def main(ai_count: int = 3, celeb_count: int = 4, celeb_story_count: int = 0,
         # ★발행 정책(2026-08-06 에디님 지시로 변경):
         #   · AI·쇼핑편 → **자동 공개 발행**(경험 슬롯 없이 완성본으로 나감)
         #   · 연예편 → 임시저장 유지(에디님이 사진·표현 확인 후 직접 발행)
-        do_publish = (cat != CAT_CELEB)
+        do_publish = config.AUTO_PUBLISH and (cat != CAT_CELEB)
         # ★예약 시각은 위에서 만든 낮 슬롯(PUBLISH_SLOTS)에서 순서대로 꺼낸다.
         rsv = None
         if do_publish and _slot_i < len(_pub_slots):
