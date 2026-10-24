@@ -11,6 +11,9 @@
   python3 run.py --limit 10
   python3 run.py --dry                         # 아무것도 입력하지 않고 화면만 점검
 
+브라우저(2026-10-24): 맥=에고라이트 · 윈도우=어사이드(Aside CLI) — browser_drive.py 가 고른다.
+  네이버 로그인은 그 브라우저에 **본인이 직접** 해 둔다. 크롬 session 파일은 필요 없다.
+
 ★터미널을 볼 필요가 없다. 브라우저 창 하나에서 끝난다.
   화면 맨 위 띠가 지금 뭘 하면 되는지 알려준다.
     ① 초록 띠  → 댓글 읽어보고 [등록] 클릭
@@ -34,6 +37,9 @@ import argparse
 import sys as _sys, os as _os
 _sys.path.insert(0, _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "..", "블로그자동"))
 import myinfo  # noqa: E402
+sys_path_here = _os.path.dirname(_os.path.abspath(__file__))
+_sys.path.insert(0, sys_path_here)
+import browser_drive  # noqa: E402
 
 import csv
 import glob
@@ -229,9 +235,13 @@ def open_buddy_form(page, target_blog, message="", dry=False):
                 has: !!b,
                 disabled: b ? b.disabled : null,
                 already: /이미 이웃|이웃입니다|취소/.test(body) && !b,
+                mine: /이미 추가한 이웃/.test(body),
             };
         }"""
     )
+    if state.get("mine"):
+        # 이미 이웃인 곳(실측 2026-10-24: 라디오가 disabled + «이미 추가한 이웃입니다»). 안 받는 블로그와 다르다.
+        return "이미이웃"
     if not state["has"] or state["disabled"]:
         # 서로이웃을 안 받는 블로그가 실제로 있다. 계속 시도해봐야 헛수고다.
         return "서이추불가"
@@ -269,6 +279,144 @@ def open_buddy_form(page, target_blog, message="", dry=False):
 
 
 # ───────────────────────── 메인 ─────────────────────────
+
+def _loop(page, todo, args, ledger, daily, today, done_today):
+    """한 사람씩: 댓글 칸 채우기 → 사람이 [등록] → 서이추 화면 → 사람이 [확인]. 한 명 수를 돌려준다."""
+    fails = 0
+    done = 0
+    for i, r in enumerate(todo, 1):
+        if page.is_closed():
+            log("창이 닫혔습니다. 여기서 멈춥니다.")
+            break
+        started_at = time.time()  # 이 사람에게 쓴 시간(사람이 읽고 누르는 시간 포함)
+        bid = r["blogId"]
+        url = r.get("URL", "")
+        log_no = url.rstrip("/").split("/")[-1]
+        print("\n" + "═" * 70)
+        print(f"[{i}/{len(todo)}]  {bid}   ({r.get('출처','')})")
+        if r.get("글제목"):
+            print(f"  글    : {r['글제목'][:56]}")
+        if r.get("댓글초안"):
+            print(f"  댓글  : {r['댓글초안']}")
+        if r.get("서이추메시지"):
+            print(f"  서이추: {r['서이추메시지'][:70]}")
+        print("═" * 70)
+
+        if args.buddy_only:
+            # 댓글 단계를 통째로 건너뛰고 서이추 화면으로 바로 간다.
+            entry = ledger.setdefault(bid, {})
+            res2 = open_buddy_form(page, bid, message=r.get("서이추메시지", ""), dry=args.dry)
+            if args.dry:
+                log(f"  서이추 {res2}")
+                continue
+            if res2 == "이미이웃":
+                entry["buddy_requested"] = entry.get("buddy_requested") or today
+                log("  ⓘ 이미 이웃입니다.")
+            elif res2 == "서이추불가":
+                entry["buddy_blocked"] = today
+                log("  ⓘ 서로이웃을 안 받는 블로그입니다.")
+            elif res2.startswith("OK"):
+                banner(page, f"맨 위 [확인]을 눌러 서로이웃 신청   ({i}/{len(todo)})", "#2f6fed")
+                got = wait_until_buddy_done(page)
+                if got == "창닫힘":
+                    save_json(LEDGER, ledger)
+                    break
+                if got == "신청됨":
+                    entry["buddy_requested"] = today
+                    log("  ✓ 서이추 신청됨")
+                else:
+                    log(f"  건너뜀({got})")
+            done += 1
+            save_json(LEDGER, ledger)
+            daily.setdefault(today, {})[args.blog] = done_today + done
+            save_json(DAILY, daily)
+            if i < len(todo):
+                wait = max(0, random.randint(50, 90) - int(time.time() - started_at))
+                for left in range(wait, 0, -1):
+                    if page.is_closed():
+                        break
+                    banner(page, f"{left}초 뒤 다음({i+1}/{len(todo)})", "#777")
+                    time.sleep(1)
+            continue
+
+        res = fill_comment(page, bid, log_no, r["댓글초안"], dry=args.dry)
+        if res == "세션만료":
+            log("네이버 로그인이 풀렸습니다. 맥은 에고라이트, 윈도우는 어사이드에서 본인이 다시 로그인한 뒤 다시 하세요.")
+            break
+        if not res.startswith("OK"):
+            fails += 1
+            log(f"  ⚠ {res} (연속 실패 {fails}/{FAIL_STOP})")
+            if fails >= FAIL_STOP:
+                log("연속 실패가 많습니다. 오늘은 여기서 멈춥니다.")
+                break
+            continue
+        fails = 0
+
+        if args.dry:
+            res2 = open_buddy_form(page, bid, dry=True)
+            log(f"  댓글창 {res} / 서이추 {res2}")
+            continue
+
+        # ① 댓글 — 사람이 [등록]을 누를 때까지 화면에서 기다린다(터미널 볼 필요 없음)
+        banner(page, f"① 읽어보고 초록색 [등록]을 누르세요   ({i}/{len(todo)})  ·  건너뛰려면 그냥 두세요")
+        posted = wait_until_posted(page)
+        if posted == "창닫힘":
+            log("  창이 닫혔습니다. 여기서 멈춥니다.")
+            break
+        if posted != "등록됨":
+            log(f"  건너뜀({posted})")
+            continue
+        log("  ✓ 댓글 등록됨")
+
+        entry = ledger.setdefault(bid, {})
+        entry["commented"] = entry.get("commented", 0) + 1
+        entry["commented_at"] = today
+        save_json(LEDGER, ledger)
+
+        # ② 서로이웃 — 화면을 열고 '서로이웃'을 선택해둔 뒤, 사람이 [확인]을 누를 때까지 기다린다
+        res2 = open_buddy_form(page, bid, message=r.get("서이추메시지", ""))
+        if res2 == "이미이웃":
+            entry["buddy_requested"] = entry.get("buddy_requested") or today
+            log("  ⓘ 이미 이웃입니다. 기록해두고 넘어갑니다.")
+        elif res2 == "서이추불가":
+            entry["buddy_blocked"] = today
+            log("  ⓘ 서로이웃을 안 받는 블로그입니다. 기록해두고 넘어갑니다.")
+        elif res2.startswith("OK"):
+            banner(page, f"② 맨 위 [확인]을 눌러 서로이웃 신청   ({i}/{len(todo)})", "#2f6fed")
+            got = wait_until_buddy_done(page)
+            if got == "창닫힘":
+                save_json(LEDGER, ledger)
+                log("  창이 닫혔습니다. 여기서 멈춥니다.")
+                break
+            if got == "신청됨":
+                entry["buddy_requested"] = today
+                log("  ✓ 서이추 신청됨")
+            else:
+                log(f"  서이추 건너뜀({got})")
+        else:
+            log(f"  ⚠ 서이추 화면: {res2}")
+
+        done += 1
+        save_json(LEDGER, ledger)
+        daily.setdefault(today, {})[args.blog] = done_today + done
+        save_json(DAILY, daily)
+
+        if i < len(todo):
+            # ★반자동에서는 **에디님이 읽고 누르는 시간 자체가 이미 사람 속도**다.
+            #   거기에 또 1~2분을 얹으면 앉아서 기다리기만 하는 시간이 생긴다(30명에 40분).
+            #   → 한 사람당 '총 간격'을 60~100초로 잡고, 사람이 쓴 시간만큼 빼고 남은 만큼만 쉰다.
+            target = random.randint(60, 100)
+            spent = int(time.time() - started_at)
+            wait = max(0, target - spent)
+            log(f"  ✓ 완료 ({done_today + done}/{DAILY_CAP}) — 작업 {spent}초 + 대기 {wait}초")
+            for left in range(wait, 0, -1):
+                if page.is_closed():
+                    break
+                banner(page, f"{left}초 뒤 다음 사람({i + 1}/{len(todo)})", "#777")
+                time.sleep(1)
+
+    return done
+
 
 def main():
     ap = argparse.ArgumentParser(description="이웃관리 3단계 — 반자동(최종 클릭은 사람)")
@@ -331,159 +479,49 @@ def main():
         log("할 대상이 없습니다.")
         return 0
 
-    try:
-        from playwright.sync_api import sync_playwright
-    except ImportError:
-        log("playwright 미설치 — pip3 install playwright")
+    # 🔴2026-10-24 — 맥=에고라이트 · 윈도우=어사이드(CLI)로 화면을 연다. 크롬 session 파일이 없어도 된다.
+    page, closer, why = browser_drive.open_page()
+    if why:
+        log(why)
         return 1
-
-    sess = session_file(args.blog)
-    if not os.path.exists(sess):
-        log(f"세션 없음: {sess}")
-        return 1
-
-    fails = 0
-    done = 0
-    with sync_playwright() as p:
-        # ★headless=False — 에디님이 화면을 보고 직접 눌러야 하므로 반드시 보이는 창.
-        browser = p.chromium.launch(headless=args.dry)
-        ctx = browser.new_context(storage_state=sess, user_agent=UA,
-                                  viewport={"width": 430, "height": 930})
-        page = ctx.new_page()
-
-        for i, r in enumerate(todo, 1):
-            if page.is_closed():
-                log("창이 닫혔습니다. 여기서 멈춥니다.")
-                break
-            started_at = time.time()  # 이 사람에게 쓴 시간(사람이 읽고 누르는 시간 포함)
-            bid = r["blogId"]
-            url = r.get("URL", "")
-            log_no = url.rstrip("/").split("/")[-1]
-            print("\n" + "═" * 70)
-            print(f"[{i}/{len(todo)}]  {bid}   ({r.get('출처','')})")
-            if r.get("글제목"):
-                print(f"  글    : {r['글제목'][:56]}")
-            if r.get("댓글초안"):
-                print(f"  댓글  : {r['댓글초안']}")
-            if r.get("서이추메시지"):
-                print(f"  서이추: {r['서이추메시지'][:70]}")
-            print("═" * 70)
-
-            if args.buddy_only:
-                # 댓글 단계를 통째로 건너뛰고 서이추 화면으로 바로 간다.
-                entry = ledger.setdefault(bid, {})
-                res2 = open_buddy_form(page, bid, message=r.get("서이추메시지", ""), dry=args.dry)
-                if args.dry:
-                    log(f"  서이추 {res2}")
-                    continue
-                if res2 == "서이추불가":
-                    entry["buddy_blocked"] = today
-                    log("  ⓘ 서로이웃을 안 받는 블로그입니다.")
-                elif res2.startswith("OK"):
-                    banner(page, f"맨 위 [확인]을 눌러 서로이웃 신청   ({i}/{len(todo)})", "#2f6fed")
-                    got = wait_until_buddy_done(page)
-                    if got == "창닫힘":
-                        save_json(LEDGER, ledger)
-                        break
-                    if got == "신청됨":
-                        entry["buddy_requested"] = today
-                        log("  ✓ 서이추 신청됨")
-                    else:
-                        log(f"  건너뜀({got})")
-                done += 1
-                save_json(LEDGER, ledger)
-                daily.setdefault(today, {})[args.blog] = done_today + done
-                save_json(DAILY, daily)
-                if i < len(todo):
-                    wait = max(0, random.randint(50, 90) - int(time.time() - started_at))
-                    for left in range(wait, 0, -1):
-                        if page.is_closed():
-                            break
-                        banner(page, f"{left}초 뒤 다음({i+1}/{len(todo)})", "#777")
-                        time.sleep(1)
-                continue
-
-            res = fill_comment(page, bid, log_no, r["댓글초안"], dry=args.dry)
-            if res == "세션만료":
-                log("세션이 만료됐습니다. 체험단 도구에서 --login 후 다시 하세요.")
-                break
-            if not res.startswith("OK"):
-                fails += 1
-                log(f"  ⚠ {res} (연속 실패 {fails}/{FAIL_STOP})")
-                if fails >= FAIL_STOP:
-                    log("연속 실패가 많습니다. 오늘은 여기서 멈춥니다.")
-                    break
-                continue
-            fails = 0
-
-            if args.dry:
-                res2 = open_buddy_form(page, bid, dry=True)
-                log(f"  댓글창 {res} / 서이추 {res2}")
-                continue
-
-            # ① 댓글 — 사람이 [등록]을 누를 때까지 화면에서 기다린다(터미널 볼 필요 없음)
-            banner(page, f"① 읽어보고 초록색 [등록]을 누르세요   ({i}/{len(todo)})  ·  건너뛰려면 그냥 두세요")
-            posted = wait_until_posted(page)
-            if posted == "창닫힘":
-                log("  창이 닫혔습니다. 여기서 멈춥니다.")
-                break
-            if posted != "등록됨":
-                log(f"  건너뜀({posted})")
-                continue
-            log("  ✓ 댓글 등록됨")
-
-            entry = ledger.setdefault(bid, {})
-            entry["commented"] = entry.get("commented", 0) + 1
-            entry["commented_at"] = today
-            save_json(LEDGER, ledger)
-
-            # ② 서로이웃 — 화면을 열고 '서로이웃'을 선택해둔 뒤, 사람이 [확인]을 누를 때까지 기다린다
-            res2 = open_buddy_form(page, bid, message=r.get("서이추메시지", ""))
-            if res2 == "서이추불가":
-                entry["buddy_blocked"] = today
-                log("  ⓘ 서로이웃을 안 받는 블로그입니다. 기록해두고 넘어갑니다.")
-            elif res2.startswith("OK"):
-                banner(page, f"② 맨 위 [확인]을 눌러 서로이웃 신청   ({i}/{len(todo)})", "#2f6fed")
-                got = wait_until_buddy_done(page)
-                if got == "창닫힘":
-                    save_json(LEDGER, ledger)
-                    log("  창이 닫혔습니다. 여기서 멈춥니다.")
-                    break
-                if got == "신청됨":
-                    entry["buddy_requested"] = today
-                    log("  ✓ 서이추 신청됨")
-                else:
-                    log(f"  서이추 건너뜀({got})")
-            else:
-                log(f"  ⚠ 서이추 화면: {res2}")
-
-            done += 1
-            save_json(LEDGER, ledger)
-            daily.setdefault(today, {})[args.blog] = done_today + done
-            save_json(DAILY, daily)
-
-            if i < len(todo):
-                # ★반자동에서는 **에디님이 읽고 누르는 시간 자체가 이미 사람 속도**다.
-                #   거기에 또 1~2분을 얹으면 앉아서 기다리기만 하는 시간이 생긴다(30명에 40분).
-                #   → 한 사람당 '총 간격'을 60~100초로 잡고, 사람이 쓴 시간만큼 빼고 남은 만큼만 쉰다.
-                target = random.randint(60, 100)
-                spent = int(time.time() - started_at)
-                wait = max(0, target - spent)
-                log(f"  ✓ 완료 ({done_today + done}/{DAILY_CAP}) — 작업 {spent}초 + 대기 {wait}초")
-                for left in range(wait, 0, -1):
-                    if page.is_closed():
-                        break
-                    banner(page, f"{left}초 뒤 다음 사람({i + 1}/{len(todo)})", "#777")
-                    time.sleep(1)
-
-        # ★세션 되저장 — 네이버가 갱신해 준 쿠키를 반영해야 로그인이 오래 간다.
-        #   이걸 안 하면 실행할 때마다 갱신분을 버려서 세션이 서서히 죽는다.
+    if page is not None:
+        ok, why = browser_drive.login_ok(page, args.blog)
+        if not ok:
+            log(why)
+            closer()
+            return 1
+        log(f"브라우저: {browser_drive.mode()} — 이 창에서 [등록]·[확인]을 직접 누르세요.")
         try:
-            ctx.storage_state(path=sess)
-            log("세션 갱신 저장 ✓")
-        except Exception as e:
-            log(f"세션 저장 실패(무시): {str(e)[:40]}")
-        browser.close()
+            done = _loop(page, todo, args, ledger, daily, today, done_today)
+        finally:
+            closer()
+    else:
+        # 예전 길(내정보.txt 「브라우저: 크롬」) — 블로그자동/session 의 로그인 파일을 쓴다.
+        try:
+            from playwright.sync_api import sync_playwright
+        except ImportError:
+            log("playwright 미설치 — pip3 install playwright")
+            return 1
+
+        sess = session_file(args.blog)
+        if not os.path.exists(sess):
+            log(f"세션 없음: {sess}")
+            return 1
+
+        with sync_playwright() as p:
+            # ★headless=False — 에디님이 화면을 보고 직접 눌러야 하므로 반드시 보이는 창.
+            browser = p.chromium.launch(headless=args.dry)
+            ctx = browser.new_context(storage_state=sess, user_agent=UA,
+                                      viewport={"width": 430, "height": 930})
+            page = ctx.new_page()
+            done = _loop(page, todo, args, ledger, daily, today, done_today)
+            # ★세션 되저장 — 네이버가 갱신해 준 쿠키를 반영해야 로그인이 오래 간다.
+            try:
+                ctx.storage_state(path=sess)
+                log("세션 갱신 저장 ✓")
+            except Exception as e:
+                log(f"세션 저장 실패(무시): {str(e)[:40]}")
+            browser.close()
 
     log(f"오늘 마무리 — 이번에 {done}명, 누적 {done_today + done}/{DAILY_CAP}")
     if done_today + done >= DAILY_CAP:

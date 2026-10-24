@@ -21,29 +21,38 @@ goto NOPY
 :HAVEPY
 "%PY%" --version >nul 2>nul
 if errorlevel 1 goto NOPY
-echo [1/4] 파이썬 확인 완료
+echo [1/5] 파이썬 확인 완료
 echo.
 
-echo [2/4] 필요한 부품을 설치합니다. 몇 분 걸립니다...
+echo [2/5] 필요한 부품을 설치합니다. 몇 분 걸립니다...
 "%PY%" -m pip install --user --quiet playwright requests pillow
 if errorlevel 1 goto PIPFAIL
 echo      완료
 echo.
 
-echo [3/4] 크롬 부품을 설치합니다. 몇 분 걸립니다...
+echo [3/5] 크롬 부품을 설치합니다. 몇 분 걸립니다...
 "%PY%" -m playwright install chromium
 if errorlevel 1 goto PWFAIL
 echo      완료
 echo.
 
-echo [4/4] 클로드 코드를 설치합니다...
+echo [4/5] 클로드 코드를 설치합니다...
 where claude >nul 2>nul
 if %errorlevel%==0 goto HAVECLAUDE
 powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://claude.ai/install.ps1 | iex"
-goto DONE
+goto ASIDECLI
 
 :HAVECLAUDE
 echo      이미 설치되어 있습니다
+goto ASIDECLI
+
+:ASIDECLI
+echo.
+echo [5/5] 어사이드 CLI 를 설치합니다 (댓글·서이추 화면 채우기용)...
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0이웃관리\aside_cli_install.ps1"
+if errorlevel 1 (
+  echo      안 됐습니다. 괜찮습니다 - 수업 때 어사이드 Settings - Developers - Aside CLI Install 로 합니다.
+)
 goto DONE
 
 :DONE
@@ -51,8 +60,9 @@ echo.
 echo ============================================
 echo    설치가 끝났습니다!
 echo.
-echo    * 네이버 임시저장은 어사이드로 합니다.
+echo    * 네이버 임시저장·댓글은 어사이드로 합니다.
 echo      어사이드를 깔고 네이버에 직접 로그인해 두세요.
+echo      어사이드를 처음 깔았다면 이 설치 파일을 한 번 더 실행하세요.
 start "" "https://aside.computer"
 echo    다음 순서
 echo    1. 메모장으로 내정보.txt 를 열어 블로그ID 넣기

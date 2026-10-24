@@ -194,6 +194,176 @@ def banner(page, text, color="#03c75a"):
         pass
 
 
+def _replies(page, args, me, posts, ledger, replied, today):
+    """내 글마다 댓글을 읽고 → 답글 버튼 → 답글칸 채우기 → 사람이 [등록]. 등록된 수를 돌려준다."""
+    done = 0
+    for post in posts:
+        if done >= args.limit or page.is_closed():
+            break
+        url = f"https://m.blog.naver.com/CommentList.naver?blogId={args.blog}&logNo={post['logNo']}"
+        try:
+            page.goto(url, wait_until="domcontentloaded", timeout=25000)
+            if "nidlogin" in page.url:
+                log("네이버 로그인이 풀렸습니다 — 에고라이트(맥)·어사이드(윈도우)에서 본인이 다시 로그인")
+                break
+            page.wait_for_timeout(2200)
+        except Exception as e:
+            log(f"  글 열기 실패: {str(e)[:60]}")
+            continue
+
+        rows = page.evaluate(
+            """() => {
+                const out = [];
+                document.querySelectorAll('a[href*="trackingCode=blog_comment"]').forEach((a, i) => {
+                    const m = (a.getAttribute('href')||'').match(/blogId=([A-Za-z0-9_-]+)/);
+                    const box = a.closest('li, [class*=comment], [class*=Comment]');
+                    if (!m || !box) return;
+                    // 내가 쓴 답글은 제외(내 글이므로 답글도 이 목록에 섞인다)
+                    const txt = (box.innerText||'').replace(/\\s+/g,' ').trim();
+                    const nm = (a.innerText||'').trim();
+                    out.push({ who: m[1], nick: nm, text: txt.slice(0, 200) });
+                });
+                // 같은 댓글이 두 번 잡히므로 중복 제거
+                const seen = new Set();
+                return out.filter(r => { const k = r.who + '|' + r.text.slice(0,40);
+                    if (seen.has(k)) return false; seen.add(k); return true; });
+            }"""
+        )
+        rows = [r for r in rows if r["who"] != args.blog]
+        if not rows:
+            continue
+
+        for idx, r in enumerate(rows):
+            if done >= args.limit or page.is_closed():
+                break
+            who = r["who"]
+            key = f"{who}|{post['logNo']}"
+            if key in replied:
+                continue
+
+            # 댓글 본문만 뽑기(작성자명·날짜·버튼 텍스트 제거)
+            ctext = re.sub(r"옵션 열기|신고|답글|공감\s*\d*|삭제|수정|\d{4}\.\s?\d+\.\s?\d+\.?\s?\d*:?\d*", " ", r["text"])
+            ctext = re.sub(r"\s+", " ", ctext).strip()
+            # ⚠️댓글 덩어리는 '닉네임 + 본문' 순서다. 아이디(vol87)로 부르면 어색하니
+            #   맨 앞 닉네임(Remote Shop)을 떼어내 호칭으로 쓰고, 본문에서는 지운다.
+            nick = r.get("nick") or ""
+            if nick and ctext.startswith(nick):
+                ctext = ctext[len(nick):].strip()
+            who_call = nick or who
+
+            back = "답방" if ledger.get(who, {}).get("commented") else ""
+            print("\n" + "═" * 68)
+            print(f"[{done+1}] {r.get('nick') or who} ({who})  {('← ' + back) if back else ''}")
+            print(f"  내 글  : {post['title'][:46]}")
+            print(f"  댓글   : {ctext[:110]}")
+
+            reply, err = make_reply(me, post["title"], who_call, ctext)
+            flags = [err] if err else check(reply)
+            print(f"  답글안 : {reply}")
+            print(f"  검수   : {', '.join(flags) or '통과'}")
+            if flags:
+                continue
+            if args.dry:
+                done += 1
+                continue
+
+            # 🔴🔴대댓글이어야 한다. 맨 아래 '댓글쓰기' 칸에 쓰면 **새 댓글**이 되어
+            #   상대는 답이 온 줄도 모르고, 보는 사람도 무슨 말인지 알 수 없다(실측 사고 2건).
+            #   ① 그 사람의 댓글에 달린 '답글' 버튼을 눌러야 하고
+            #   ② 열린 입력칸이 **`.u_cbox_reply_area` 안**인지 반드시 확인해야 한다.
+            #      (일반 댓글칸과 클래스가 `.u_cbox_text`로 똑같아서 이걸 안 보면 구분이 안 된다)
+            ok = page.evaluate(
+                """(who) => {
+                    const btns = [...document.querySelectorAll('a.u_cbox_btn_reply')];
+                    // 그 사람의 댓글 덩어리에 속한 답글 버튼을 찾는다(인덱스는 답글이 늘면 밀린다)
+                    const btn = btns.find(b => {
+                        const li = b.closest('li, [class*=u_cbox_comment]');
+                        if (!li) return false;
+                        const a = li.querySelector('a[href*="trackingCode=blog_comment"]');
+                        return a && (a.getAttribute('href')||'').includes('blogId=' + who);
+                    });
+                    if (!btn) return false;
+                    btn.scrollIntoView({block:'center'});
+                    btn.click();
+                    return true;
+                }""",
+                who,
+            )
+            if not ok:
+                print("  ⚠ 이 사람의 '답글' 버튼을 못 찾았습니다. 건너뜁니다.")
+                continue
+            page.wait_for_timeout(1400)
+            typed = page.evaluate(
+                """() => {
+                    const vis = el => el && el.offsetParent !== null;
+                    // ★답글창 = .u_cbox_reply_area 안에 있는 입력칸. 이것만 잡는다.
+                    const el = [...document.querySelectorAll('.u_cbox_text, textarea')]
+                        .filter(vis)
+                        .find(e => e.closest('.u_cbox_reply_area, .u_cbox_reply'));
+                    if (!el) return false;
+                    el.scrollIntoView({block:'center'}); el.click(); el.focus();
+                    return true;
+                }"""
+            )
+            if not typed:
+                print("  ⚠ 답글창이 안 열렸습니다(일반 댓글칸에는 쓰지 않습니다). 건너뜁니다.")
+                continue
+            page.wait_for_timeout(300)
+            page.keyboard.type(reply, delay=random.randint(18, 42))
+            page.wait_for_timeout(400)
+
+            # 🔴반드시 '실제로 들어갔는지' 확인하고 넘어간다.
+            #   답글창이 안 열리면 스크립트가 원래 비어 있는 일반 댓글창을 붙잡는데,
+            #   그게 비어 있으니 아래 대기 루프가 곧바로 "등록됨"으로 오판한다
+            #   (실측: 사람이 한 번만 눌렀는데 2건이 기록됐다).
+            probe = re.sub(r"\s", "", reply)[:12]
+            filled = page.evaluate(
+                """(p) => {
+                    const vis = el => el && el.offsetParent !== null;
+                    const el = [...document.querySelectorAll('.u_cbox_text, textarea')].filter(vis)
+                        .find(e => e.closest('.u_cbox_reply_area, .u_cbox_reply'));
+                    if (!el) return false;
+                    return (el.innerText || el.value || '').replace(/\\s/g, '').includes(p);
+                }""",
+                probe,
+            )
+            if not filled:
+                print("  ⚠ 답글창에 글이 안 들어갔습니다. 이 건은 건너뜁니다(기록도 안 남김).")
+                continue
+
+            banner(page, f"답글이 채워졌습니다 — [등록]을 누르세요  ({done+1})")
+            # 사람이 등록할 때까지 기다린다(입력칸이 비면 등록된 것)
+            deadline = time.time() + 240
+            posted = False
+            while time.time() < deadline:
+                if page.is_closed():
+                    break
+                try:
+                    cur = page.evaluate(
+                        """() => {
+                            const vis = el => el && el.offsetParent !== null;
+                            const el = [...document.querySelectorAll('.u_cbox_text, textarea')].filter(vis)
+                                .find(e => e.closest('.u_cbox_reply_area, .u_cbox_reply'));
+                            return el ? (el.innerText || el.value || '').replace(/\\s/g,'') : null;
+                        }"""
+                    )
+                except Exception:
+                    break
+                if cur is None or len(cur) < 4:
+                    posted = True
+                    break
+                time.sleep(1.2)
+
+            if posted:
+                replied[key] = today
+                save_json(REPLIED, replied)
+                done += 1
+                log(f"  ✓ 답글 등록됨 ({done})")
+                time.sleep(random.randint(8, 25))  # 답글은 내 블로그라 위험이 낮다 — 짧게
+            else:
+                log("  건너뜀")
+    return done
+
 def main():
     ap = argparse.ArgumentParser(description="내 글 댓글에 답글 달기(반자동)")
     ap.add_argument("--blog", default="", help="내 블로그 id (비우면 내정보.txt에서 읽습니다)")
@@ -203,19 +373,26 @@ def main():
     args = ap.parse_args()
     args.blog = args.blog or myinfo.blog_id()   # 비었으면 내정보.txt
 
-    me = me(args.blog)
-    if not me:
+    my = me(args.blog)   # 🔴예전엔 `me = me(...)` 라서 실행하자마자 UnboundLocalError(2026-10-24 발견)
+    if not my:
         ap.error(f"모르는 블로그: {args.blog}")
 
-    try:
-        from playwright.sync_api import sync_playwright
-    except ImportError:
-        log("playwright 미설치")
+    # 🔴2026-10-24 — 맥=에고라이트 · 윈도우=어사이드(CLI). 크롬 session 은 「브라우저: 크롬」일 때만.
+    import browser_drive
+    page, closer, why = browser_drive.open_page()
+    if why:
+        log(why)
         return 1
-    sess = session_file(args.blog)
-    if not os.path.exists(sess):
-        log(f"세션 없음: {sess}")
-        return 1
+    if page is None:
+        try:
+            from playwright.sync_api import sync_playwright
+        except ImportError:
+            log("playwright 미설치")
+            return 1
+        sess = session_file(args.blog)
+        if not os.path.exists(sess):
+            log(f"세션 없음: {sess}")
+            return 1
 
     ledger = load_json(LEDGER, {})
     replied = load_json(REPLIED, {})
@@ -223,186 +400,29 @@ def main():
     log(f"내 최근 글 {len(posts)}편에서 댓글을 찾습니다.")
 
     today = date.today().isoformat()
-    done = 0
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=args.dry)
-        ctx = browser.new_context(storage_state=sess, user_agent=UA, viewport={"width": 430, "height": 930})
-        page = ctx.new_page()
-
-        for post in posts:
-            if done >= args.limit or page.is_closed():
-                break
-            url = f"https://m.blog.naver.com/CommentList.naver?blogId={args.blog}&logNo={post['logNo']}"
-            try:
-                page.goto(url, wait_until="domcontentloaded", timeout=25000)
-                if "nidlogin" in page.url:
-                    log("세션 만료 — 체험단 도구에서 --login 후 다시")
-                    break
-                page.wait_for_timeout(2200)
-            except Exception as e:
-                log(f"  글 열기 실패: {str(e)[:60]}")
-                continue
-
-            rows = page.evaluate(
-                """() => {
-                    const out = [];
-                    document.querySelectorAll('a[href*="trackingCode=blog_comment"]').forEach((a, i) => {
-                        const m = (a.getAttribute('href')||'').match(/blogId=([A-Za-z0-9_-]+)/);
-                        const box = a.closest('li, [class*=comment], [class*=Comment]');
-                        if (!m || !box) return;
-                        // 내가 쓴 답글은 제외(내 글이므로 답글도 이 목록에 섞인다)
-                        const txt = (box.innerText||'').replace(/\\s+/g,' ').trim();
-                        const nm = (a.innerText||'').trim();
-                        out.push({ who: m[1], nick: nm, text: txt.slice(0, 200) });
-                    });
-                    // 같은 댓글이 두 번 잡히므로 중복 제거
-                    const seen = new Set();
-                    return out.filter(r => { const k = r.who + '|' + r.text.slice(0,40);
-                        if (seen.has(k)) return false; seen.add(k); return true; });
-                }"""
-            )
-            rows = [r for r in rows if r["who"] != args.blog]
-            if not rows:
-                continue
-
-            for idx, r in enumerate(rows):
-                if done >= args.limit or page.is_closed():
-                    break
-                who = r["who"]
-                key = f"{who}|{post['logNo']}"
-                if key in replied:
-                    continue
-
-                # 댓글 본문만 뽑기(작성자명·날짜·버튼 텍스트 제거)
-                ctext = re.sub(r"옵션 열기|신고|답글|공감\s*\d*|삭제|수정|\d{4}\.\s?\d+\.\s?\d+\.?\s?\d*:?\d*", " ", r["text"])
-                ctext = re.sub(r"\s+", " ", ctext).strip()
-                # ⚠️댓글 덩어리는 '닉네임 + 본문' 순서다. 아이디(vol87)로 부르면 어색하니
-                #   맨 앞 닉네임(Remote Shop)을 떼어내 호칭으로 쓰고, 본문에서는 지운다.
-                nick = r.get("nick") or ""
-                if nick and ctext.startswith(nick):
-                    ctext = ctext[len(nick):].strip()
-                who_call = nick or who
-
-                back = "답방" if ledger.get(who, {}).get("commented") else ""
-                print("\n" + "═" * 68)
-                print(f"[{done+1}] {r.get('nick') or who} ({who})  {('← ' + back) if back else ''}")
-                print(f"  내 글  : {post['title'][:46]}")
-                print(f"  댓글   : {ctext[:110]}")
-
-                reply, err = make_reply(me, post["title"], who_call, ctext)
-                flags = [err] if err else check(reply)
-                print(f"  답글안 : {reply}")
-                print(f"  검수   : {', '.join(flags) or '통과'}")
-                if flags:
-                    continue
-                if args.dry:
-                    done += 1
-                    continue
-
-                # 🔴🔴대댓글이어야 한다. 맨 아래 '댓글쓰기' 칸에 쓰면 **새 댓글**이 되어
-                #   상대는 답이 온 줄도 모르고, 보는 사람도 무슨 말인지 알 수 없다(실측 사고 2건).
-                #   ① 그 사람의 댓글에 달린 '답글' 버튼을 눌러야 하고
-                #   ② 열린 입력칸이 **`.u_cbox_reply_area` 안**인지 반드시 확인해야 한다.
-                #      (일반 댓글칸과 클래스가 `.u_cbox_text`로 똑같아서 이걸 안 보면 구분이 안 된다)
-                ok = page.evaluate(
-                    """(who) => {
-                        const btns = [...document.querySelectorAll('a.u_cbox_btn_reply')];
-                        // 그 사람의 댓글 덩어리에 속한 답글 버튼을 찾는다(인덱스는 답글이 늘면 밀린다)
-                        const btn = btns.find(b => {
-                            const li = b.closest('li, [class*=u_cbox_comment]');
-                            if (!li) return false;
-                            const a = li.querySelector('a[href*="trackingCode=blog_comment"]');
-                            return a && (a.getAttribute('href')||'').includes('blogId=' + who);
-                        });
-                        if (!btn) return false;
-                        btn.scrollIntoView({block:'center'});
-                        btn.click();
-                        return true;
-                    }""",
-                    who,
-                )
-                if not ok:
-                    print("  ⚠ 이 사람의 '답글' 버튼을 못 찾았습니다. 건너뜁니다.")
-                    continue
-                page.wait_for_timeout(1400)
-                typed = page.evaluate(
-                    """() => {
-                        const vis = el => el && el.offsetParent !== null;
-                        // ★답글창 = .u_cbox_reply_area 안에 있는 입력칸. 이것만 잡는다.
-                        const el = [...document.querySelectorAll('.u_cbox_text, textarea')]
-                            .filter(vis)
-                            .find(e => e.closest('.u_cbox_reply_area, .u_cbox_reply'));
-                        if (!el) return false;
-                        el.scrollIntoView({block:'center'}); el.click(); el.focus();
-                        return true;
-                    }"""
-                )
-                if not typed:
-                    print("  ⚠ 답글창이 안 열렸습니다(일반 댓글칸에는 쓰지 않습니다). 건너뜁니다.")
-                    continue
-                page.wait_for_timeout(300)
-                page.keyboard.type(reply, delay=random.randint(18, 42))
-                page.wait_for_timeout(400)
-
-                # 🔴반드시 '실제로 들어갔는지' 확인하고 넘어간다.
-                #   답글창이 안 열리면 스크립트가 원래 비어 있는 일반 댓글창을 붙잡는데,
-                #   그게 비어 있으니 아래 대기 루프가 곧바로 "등록됨"으로 오판한다
-                #   (실측: 사람이 한 번만 눌렀는데 2건이 기록됐다).
-                probe = re.sub(r"\s", "", reply)[:12]
-                filled = page.evaluate(
-                    """(p) => {
-                        const vis = el => el && el.offsetParent !== null;
-                        const el = [...document.querySelectorAll('.u_cbox_text, textarea')].filter(vis)
-                            .find(e => e.closest('.u_cbox_reply_area, .u_cbox_reply'));
-                        if (!el) return false;
-                        return (el.innerText || el.value || '').replace(/\\s/g, '').includes(p);
-                    }""",
-                    probe,
-                )
-                if not filled:
-                    print("  ⚠ 답글창에 글이 안 들어갔습니다. 이 건은 건너뜁니다(기록도 안 남김).")
-                    continue
-
-                banner(page, f"답글이 채워졌습니다 — [등록]을 누르세요  ({done+1})")
-                # 사람이 등록할 때까지 기다린다(입력칸이 비면 등록된 것)
-                deadline = time.time() + 240
-                posted = False
-                while time.time() < deadline:
-                    if page.is_closed():
-                        break
-                    try:
-                        cur = page.evaluate(
-                            """() => {
-                                const vis = el => el && el.offsetParent !== null;
-                                const el = [...document.querySelectorAll('.u_cbox_text, textarea')].filter(vis)
-                                    .find(e => e.closest('.u_cbox_reply_area, .u_cbox_reply'));
-                                return el ? (el.innerText || el.value || '').replace(/\\s/g,'') : null;
-                            }"""
-                        )
-                    except Exception:
-                        break
-                    if cur is None or len(cur) < 4:
-                        posted = True
-                        break
-                    time.sleep(1.2)
-
-                if posted:
-                    replied[key] = today
-                    save_json(REPLIED, replied)
-                    done += 1
-                    log(f"  ✓ 답글 등록됨 ({done})")
-                    time.sleep(random.randint(8, 25))  # 답글은 내 블로그라 위험이 낮다 — 짧게
-                else:
-                    log("  건너뜀")
-
-        # ★세션 되저장 — 네이버가 갱신해 준 쿠키를 반영해야 로그인이 오래 간다.
-        #   이걸 안 하면 실행할 때마다 갱신분을 버려서 세션이 서서히 죽는다.
+    if page is not None:
+        ok, why = browser_drive.login_ok(page, args.blog)
+        if not ok:
+            log(why)
+            closer()
+            return 1
         try:
-            ctx.storage_state(path=sess)
-            log("세션 갱신 저장 ✓")
-        except Exception as e:
-            log(f"세션 저장 실패(무시): {str(e)[:40]}")
-        browser.close()
+            done = _replies(page, args, my, posts, ledger, replied, today)
+        finally:
+            closer()
+    else:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=args.dry)
+            ctx = browser.new_context(storage_state=sess, user_agent=UA, viewport={"width": 430, "height": 930})
+            page = ctx.new_page()
+            done = _replies(page, args, my, posts, ledger, replied, today)
+            # ★세션 되저장 — 네이버가 갱신해 준 쿠키를 반영해야 로그인이 오래 간다.
+            try:
+                ctx.storage_state(path=sess)
+                log("세션 갱신 저장 ✓")
+            except Exception as e:
+                log(f"세션 저장 실패(무시): {str(e)[:40]}")
+            browser.close()
 
     log(f"완료 — 답글 {done}건")
     if args.dry:

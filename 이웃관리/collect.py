@@ -223,7 +223,19 @@ def fetch_my_recent_posts(blog_id, count=10):
 
 
 def collect_commenters(blog_id, posts, headless=True):
-    """Playwright로 내 글을 열어 댓글 작성자를 읽는다. 읽기만 한다."""
+    """내 글을 열어 댓글 작성자를 읽는다. 읽기만 한다.
+    🔴2026-10-24 — 맥=에고라이트 · 윈도우=어사이드(CLI)로 연다(browser_drive.py). 크롬 session 은 「브라우저: 크롬」일 때만."""
+    import browser_drive
+    page, closer, why = browser_drive.open_page()
+    if why:
+        log(f"  !! {why}")
+        return []
+    if page is not None:
+        try:
+            return _read_commenters(page, blog_id, posts)
+        finally:
+            closer()
+
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:
@@ -235,53 +247,58 @@ def collect_commenters(blog_id, posts, headless=True):
         log(f"  !! 세션 없음: {sess}")
         return []
 
-    found = {}
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=headless)
         ctx = browser.new_context(storage_state=sess, user_agent=UA)
         page = ctx.new_page()
-        for i, post in enumerate(posts, 1):
-            # ★CommentList.naver 로 열면 댓글 시트(CommentBottomSheet)가 펼쳐진 채로 뜬다.
-            #   그냥 글 주소로 열면 댓글이 접혀 있어 아무것도 안 잡힌다.
-            url = f"https://m.blog.naver.com/CommentList.naver?blogId={blog_id}&logNo={post['logNo']}"
-            try:
-                page.goto(url, wait_until="domcontentloaded", timeout=20000)
-                if "nidlogin" in page.url:
-                    log("  !! 세션 만료 — 체험단 도구에서 --login 후 다시")
-                    break
-                page.wait_for_timeout(2200)
-                # 댓글 작성자는 trackingCode=blog_comment 링크로만 나온다(가장 확실한 신호).
-                rows = page.evaluate(
-                    """() => {
-                        const out = [];
-                        document.querySelectorAll('a[href*="trackingCode=blog_comment"]').forEach(a => {
-                            const m = (a.getAttribute('href')||'').match(/blogId=([A-Za-z0-9_-]+)/);
-                            if (!m) return;
-                            const box = a.closest('li, [class*=comment], [class*=Comment]');
-                            const txt = box ? (box.innerText||'').replace(/\\s+/g,' ').trim().slice(0, 90) : '';
-                            out.push({ blogId: m[1], name: (a.innerText||'').trim(), text: txt });
-                        });
-                        return out;
-                    }"""
-                )
-                for r in rows:
-                    bid = r.get("blogId", "")
-                    if not bid or bid in MY_BLOGS() or bid in found:
-                        continue
-                    found[bid] = {
-                        "blogId": bid,
-                        "url": f"https://m.blog.naver.com/{bid}",
-                        "title": r.get("name") or bid,
-                        "snippet": r.get("text", ""),
-                        "rank": 0,
-                        "onPost": post["title"][:40],
-                    }
-                log(f"  ({i}/{len(posts)}) {post['title'][:28]} → 누적 {len(found)}명")
-            except Exception as e:
-                log(f"  ({i}/{len(posts)}) 실패: {str(e)[:60]}")
-            # 사람처럼 — 연속 요청을 붙이지 않는다
-            page.wait_for_timeout(random.randint(700, 1600))
+        found = _read_commenters(page, blog_id, posts)
         browser.close()
+    return found
+
+
+def _read_commenters(page, blog_id, posts):
+    found = {}
+    for i, post in enumerate(posts, 1):
+        # ★CommentList.naver 로 열면 댓글 시트(CommentBottomSheet)가 펼쳐진 채로 뜬다.
+        #   그냥 글 주소로 열면 댓글이 접혀 있어 아무것도 안 잡힌다.
+        url = f"https://m.blog.naver.com/CommentList.naver?blogId={blog_id}&logNo={post['logNo']}"
+        try:
+            page.goto(url, wait_until="domcontentloaded", timeout=20000)
+            if "nidlogin" in page.url:
+                log("  !! 네이버 로그인이 풀렸습니다 — 에고라이트(맥)·어사이드(윈도우)에서 본인이 다시 로그인")
+                break
+            page.wait_for_timeout(2200)
+            # 댓글 작성자는 trackingCode=blog_comment 링크로만 나온다(가장 확실한 신호).
+            rows = page.evaluate(
+                """() => {
+                    const out = [];
+                    document.querySelectorAll('a[href*="trackingCode=blog_comment"]').forEach(a => {
+                        const m = (a.getAttribute('href')||'').match(/blogId=([A-Za-z0-9_-]+)/);
+                        if (!m) return;
+                        const box = a.closest('li, [class*=comment], [class*=Comment]');
+                        const txt = box ? (box.innerText||'').replace(/\\s+/g,' ').trim().slice(0, 90) : '';
+                        out.push({ blogId: m[1], name: (a.innerText||'').trim(), text: txt });
+                    });
+                    return out;
+                }"""
+            )
+            for r in rows:
+                bid = r.get("blogId", "")
+                if not bid or bid in MY_BLOGS() or bid in found:
+                    continue
+                found[bid] = {
+                    "blogId": bid,
+                    "url": f"https://m.blog.naver.com/{bid}",
+                    "title": r.get("name") or bid,
+                    "snippet": r.get("text", ""),
+                    "rank": 0,
+                    "onPost": post["title"][:40],
+                }
+            log(f"  ({i}/{len(posts)}) {post['title'][:28]} → 누적 {len(found)}명")
+        except Exception as e:
+            log(f"  ({i}/{len(posts)}) 실패: {str(e)[:60]}")
+        # 사람처럼 — 연속 요청을 붙이지 않는다
+        page.wait_for_timeout(random.randint(700, 1600))
     return list(found.values())
 
 

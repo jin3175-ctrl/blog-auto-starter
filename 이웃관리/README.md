@@ -53,8 +53,12 @@ python3 collect.py --keywords "AI 자동화" --visitors
 
 ## 실측으로 알아낸 것
 
-- 세션은 체험단 도구 것(`/Users/edi/블로그 체험단/session/`)을 그대로 쓴다. 따로 로그인하지 않는다.
-  만료되면 체험단 도구에서 `cheomdan_insert.py --login --blog <id>`.
+- 🔴**브라우저(2026-10-24)**: 맥=**에고라이트** · 윈도우=**어사이드 CLI**(`browser_drive.py`). 네이버 로그인은 그 브라우저에 **본인이 직접** 한다.
+  예전 크롬 session 파일 방식은 `내정보.txt`에 `브라우저: 크롬`일 때만 쓴다.
+  · 연결 확인: `python browser_drive.py` → 「✓ 연결됨」
+  · 어사이드는 `aside repl` 을 **하나 띄워 두고** 명령을 이어 보낸다. 한 번짜리 `aside repl "…"`로 연 탭은 명령이 끝나면 닫혀서
+    사람이 [등록]을 누를 시간이 없다(실측 10/24). `window.open`·`page.context()`는 안 된다.
+  · 에고라이트는 작업 공간 「이웃관리」의 탭 p1을 쓰고, 끝나면 공간을 닫는다.
 - 🔴**댓글 API는 막혀 있다** — `apis.naver.com/commentBox/...`는 "서비스 정책에 의해 사용이 제한되었습니다"(code 3300).
   → 로그인 세션 + Playwright로 화면에서 읽는다.
 - 🔑**댓글을 보려면 `m.blog.naver.com/CommentList.naver?blogId=&logNo=` 로 열어야 한다.**
