@@ -1,8 +1,8 @@
 """네이버에 글을 넣는 브라우저를 고른다 (2026-10-17 · 3기 2주차부터).
 
   맥     → **에고라이트(ego lite)** — 사람이 클릭하듯 글쓰기 화면에 넣고 임시저장한다.
-  윈도우 → **어사이드(Aside)**   — 원고를 `어사이드용/` 폴더에 보기 좋은 페이지로 만들어 두고,
-                                  어사이드에게 프롬프트 한 장으로 임시저장을 시킨다.
+  윈도우 → **어사이드(Aside)**   — 🔴2026-10-25부터 어사이드 CLI로 글쓰기 화면에 직접 넣는다(aside_publish.py).
+                                  CLI가 없거나 실패하면 예전처럼 `어사이드용/` 폴더에 페이지+프롬프트를 만든다.
   (예전 크롬 방식은 `내정보.txt`의 「브라우저: 크롬」으로만 쓴다.)
 
 왜 크롬이 아닌가: 크롬(Playwright)은 자동화로 잡힐 수 있다. 에고라이트·어사이드는 내 브라우저에
@@ -235,7 +235,17 @@ def session_ok(log=print) -> tuple:
     if m == "ego":
         return ego_session(log)
     if m == "aside":
-        return True, ""          # 어사이드는 내가 로그인한 창을 그대로 쓴다 — 여기서 볼 수 없다
+        import aside_publish
+        if not aside_publish.available():
+            return True, ""      # CLI가 없으면 볼 수 없다 — 예전 방식으로 간다
+        import browser_drive
+        pg, closer, why = browser_drive.open_page()
+        if why or pg is None:
+            return False, why or "어사이드를 열지 못했습니다"
+        try:
+            return browser_drive.login_ok(pg, _blog_id())
+        finally:
+            closer()
     import naver
     return (True, "") if naver.session_alive(log) else (False, "네이버 로그인 세션이 없습니다.")
 
@@ -246,6 +256,17 @@ def save_draft(title, blocks, thumb, log, category="", align="", ai_mark=True,
     if m == "ego":
         return _ego_draft(title, blocks, log, category=category, align=align, ai_mark=ai_mark)
     if m == "aside":
+        # 🔴2026-10-25 — 어사이드 CLI가 있으면 프로그램이 글쓰기 화면에 직접 넣고 임시저장한다(aside_publish.py).
+        #   CLI가 없거나 중간에 실패하면 예전 방식(.html + Ask 칸 프롬프트)으로 넘어간다.
+        import aside_publish
+        if aside_publish.available():
+            log("어사이드 CLI로 글쓰기 화면을 열어 넣습니다(임시저장까지만)…")
+            r = aside_publish.draft(_blog_id(), title, blocks, log, category=category, align=align, ai_mark=ai_mark)
+            if r.get("ok"):
+                return r
+            log("⚠ " + r.get("message", "어사이드 실패") + " → 예전 방식(어사이드용 폴더)으로 만듭니다.")
+        else:
+            log("어사이드 CLI가 없습니다(설정 → Developers → Aside CLI Install) → 예전 방식으로 만듭니다.")
         return _aside_page(title, blocks, post_no, log)
     import naver
     return naver.save_draft(title, blocks, thumb, log, publish=False, category=category)

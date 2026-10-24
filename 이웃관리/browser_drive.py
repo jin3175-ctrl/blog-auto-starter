@@ -186,7 +186,10 @@ class AsidePage:
         """우리가 연 탭만 닫고 REPL을 끝낸다. 사람이 쓰던 다른 탭은 건드리지 않는다."""
         try:
             if self._opened and not self._closed:
-                self._send("await closeTab(__edi); return 1;", timeout=20)
+                # 글자가 든 탭은 «나가시겠습니까» 때문에 안 닫힌다(10/25 실측) → 창을 수락하고 비운 뒤 닫는다
+                self._send("__edi.on('dialog', d => d.accept().catch(() => {}));"
+                           "await __edi.evaluate(() => location.replace('about:blank')).catch(() => {});"
+                           "await sleep(1200); await closeTab(__edi); return 1;", timeout=30)
         except RuntimeError:
             pass
         try:
