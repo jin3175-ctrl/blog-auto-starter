@@ -247,7 +247,7 @@ def collect_commenters(blog_id, posts, headless=True):
 
     sess = session_file(blog_id)
     if not os.path.exists(sess):
-        log(f"  !! 세션 없음: {sess}")
+        log(f"  !! 세션 없음: {sess} — python 크롬_로그인.py 로 크롬에서 직접 로그인하세요")
         return []
 
     with sync_playwright() as p:

@@ -238,14 +238,15 @@ def session_ok(log=print) -> tuple:
         import aside_publish
         if not aside_publish.available():
             return True, ""      # CLI가 없으면 볼 수 없다 — 예전 방식으로 간다
-        import browser_drive
-        pg, closer, why = browser_drive.open_page()
-        if why or pg is None:
-            return False, why or "어사이드를 열지 못했습니다"
+        import browser_drive   # (이웃관리 쪽 기본은 크롬이라 open_page 가 아니라 AsidePage 를 직접 쓴다)
+        try:
+            pg = browser_drive.AsidePage()
+        except RuntimeError as e:
+            return False, str(e)[:200]
         try:
             return browser_drive.login_ok(pg, _blog_id())
         finally:
-            closer()
+            pg.close()
     import naver
     return (True, "") if naver.session_alive(log) else (False, "네이버 로그인 세션이 없습니다.")
 

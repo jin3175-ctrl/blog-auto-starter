@@ -11,8 +11,8 @@
   python3 run.py --limit 10
   python3 run.py --dry                         # 아무것도 입력하지 않고 화면만 점검
 
-브라우저(2026-10-24): 맥=에고라이트 · 윈도우=어사이드(Aside CLI) — browser_drive.py 가 고른다.
-  네이버 로그인은 그 브라우저에 **본인이 직접** 해 둔다. 크롬 session 파일은 필요 없다.
+브라우저(2026-10-25): 크롬 반자동이 기본(2기 4주차 방식) — 처음 한 번 `python 크롬_로그인.py`로 본인이 로그인.
+  (에고라이트·어사이드 길은 내정보.txt 「이웃관리 브라우저: 에고/어사이드」 — browser_drive.py)
 
 ★터미널을 볼 필요가 없다. 브라우저 창 하나에서 끝난다.
   화면 맨 위 띠가 지금 뭘 하면 되는지 알려준다.
@@ -508,7 +508,7 @@ def main():
 
         sess = session_file(args.blog)
         if not os.path.exists(sess):
-            log(f"세션 없음: {sess}")
+            log(f"세션 없음: {sess} — 「댓글용 네이버 로그인 시켜줘」(python 크롬_로그인.py)로 크롬에서 직접 로그인하세요")
             return 1
 
         with sync_playwright() as p:

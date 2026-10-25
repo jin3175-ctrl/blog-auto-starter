@@ -394,7 +394,7 @@ def main():
             return 1
         sess = session_file(args.blog)
         if not os.path.exists(sess):
-            log(f"세션 없음: {sess}")
+            log(f"세션 없음: {sess} — 「댓글용 네이버 로그인 시켜줘」(python 크롬_로그인.py)로 크롬에서 직접 로그인하세요")
             return 1
 
     ledger = load_json(LEDGER, {})

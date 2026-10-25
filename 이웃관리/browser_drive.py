@@ -35,12 +35,16 @@ SPACE_NAME = "이웃관리"
 
 
 def mode() -> str:
-    """'ego' | 'aside' | 'chrome' — 환경변수 EDI_BROWSER > 내정보.txt 「브라우저:」 줄 > 컴퓨터 종류."""
-    v = (os.environ.get("EDI_BROWSER") or "").strip().lower()
+    """'chrome'(기본) | 'ego' | 'aside' — 환경변수 EDI_NEIGHBOR_BROWSER > 내정보.txt 「이웃관리 브라우저:」 줄 > 크롬.
+
+    🔴2026-10-25 에디님: 「댓글, 서이추는 크롬으로 반자동으로 진행」 — 2기 4주차에 돌던 방식으로 되돌린다.
+      (글 임시저장은 그대로 맥=에고라이트 · 윈도우=어사이드. 그건 블로그자동/browser_upload.py 가 정한다)
+      에고라이트·어사이드 길(10/24)은 지우지 않고 「이웃관리 브라우저: 에고/어사이드」로 남겨 둔다."""
+    v = (os.environ.get("EDI_NEIGHBOR_BROWSER") or "").strip().lower()
     if not v:
         for d in (os.path.dirname(HERE), HERE):
             try:
-                m = re.search(r"^브라우저\s*[:：]\s*(\S+)",
+                m = re.search(r"^이웃관리\s*브라우저\s*[:：]\s*(\S+)",
                               open(os.path.join(d, "내정보.txt"), encoding="utf-8").read(), re.M)
             except OSError:
                 continue
@@ -50,9 +54,7 @@ def mode() -> str:
         return "ego"
     if v in ("어사이드", "aside"):
         return "aside"
-    if v in ("크롬", "chrome"):
-        return "chrome"
-    return "ego" if sys.platform == "darwin" else "aside"
+    return "chrome"
 
 
 def _one_line(js: str) -> str:
@@ -297,8 +299,10 @@ def main():
     m = mode()
     print(f"브라우저: {m}  ({'맥' if sys.platform == 'darwin' else '윈도우' if os.name == 'nt' else sys.platform})")
     if m == "chrome":
-        print("크롬(예전 방식)입니다. 내정보.txt 의 「브라우저:」 줄을 지우면 맥=에고라이트 · 윈도우=어사이드로 갑니다.")
-        return 0
+        sess = [p for p in (os.path.join(os.path.dirname(HERE), "블로그자동", "session", "naver_state.json"),) if os.path.exists(p)]
+        print("댓글·서이추는 크롬(반자동)으로 합니다. " + ("크롬 로그인 기록 ✓ 있음" if sess else
+              "✗ 크롬 로그인 기록이 없습니다 — 「댓글용 네이버 로그인 시켜줘」(python 이웃관리/크롬_로그인.py)"))
+        return 0 if sess else 1
     print("프로그램 위치:", (aside_bin() if m == "aside" else ego_bin()) or "없음")
     try:
         import myinfo
