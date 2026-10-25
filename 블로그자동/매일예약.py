@@ -1,6 +1,6 @@
 """매일 아침 「오늘글_자동.py」 예약 걸기·끄기 (2026-10-25 · 3기 3주차).
 
-    python 매일예약.py 켜기 07:00     # 매일 07:00에 한 편 → 임시저장
+    python 매일예약.py 켜기 06:00     # 매일 06:00에 한 편 → 임시저장
     python 매일예약.py 끄기
     python 매일예약.py 상태
 
@@ -98,7 +98,7 @@ if __name__ == "__main__":
     a = sys.argv[1:]
     cmd = a[0] if a else "상태"
     if cmd in ("켜기", "on"):
-        sys.exit(on(a[1] if len(a) > 1 else "07:00"))
+        sys.exit(on(a[1] if len(a) > 1 else "06:00"))
     if cmd in ("끄기", "off"):
         sys.exit(off())
     sys.exit(status())
