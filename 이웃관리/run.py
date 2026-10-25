@@ -18,13 +18,13 @@
   화면 맨 위 띠가 지금 뭘 하면 되는지 알려준다.
     ① 초록 띠  → 댓글 읽어보고 [등록] 클릭
     ② 파란 띠  → [확인] 클릭해서 서로이웃 신청
-  건너뛰고 싶으면 그냥 두면 된다(시간이 지나면 넘어간다).
+  🔴[등록]·[확인]을 직접 눌러야 다음으로 넘어간다. 안 하려면 화면 왼쪽 아래 「이번 사람 건너뛰기」.
   그만하려면 브라우저 창을 닫으면 된다.
 
 안전장치:
   · 하루 상한(기본 30) — 넘으면 시작조차 안 한다
   · ledger 대조 — 이미 댓글/서이추 한 곳은 자동 제외
-  · 사람마다 40~120초 랜덤 간격
+  · 누른 뒤 60초 뒤 다음 사람(NEXT_GAP · 10/25 에디님)
   · 서로이웃을 안 받는 블로그는 감지해서 기록하고 넘어간다
   · 연속 3회 실패하면 즉시 중단(제재 신호일 수 있다)
 """
@@ -73,6 +73,7 @@ UA = (
 # 상한을 꽉 채우는 게 딱 봇 패턴이다. 2주 무사히 돌면 50으로 올린다.
 DAILY_CAP = 30
 FAIL_STOP = 3  # 연속 실패 몇 번이면 중단할지
+NEXT_GAP = 60  # 🔴10/25 에디님 — 누른 뒤 다음 사람까지 60초
 
 
 def log(msg):
@@ -103,7 +104,7 @@ def session_file(blog_id):
     return p if os.path.exists(p) or not os.path.exists(alt) else alt
 
 
-def banner(page, text, color="#03c75a"):
+def banner(page, text, color="#03c75a", skip=False):
     """지금 뭘 하면 되는지 화면에 띄운다. 터미널을 볼 필요가 없어야 한다.
 
     🔴전면 띠로 만들었다가 **서이추 화면의 [확인] 버튼을 덮어버렸다**(실측).
@@ -127,32 +128,51 @@ def banner(page, text, color="#03c75a"):
                 }
                 b.style.background = o.c;
                 b.textContent = o.t;
+                // 🔴10/25 에디님: 「직접 눌러야 다음으로」 — 안 달고 싶은 사람은 이 버튼으로만 넘긴다(왼쪽 아래 · 등록·확인과 안 겹친다)
+                let k = document.getElementById('__edi_skip_btn');
+                if (o.skip && !k) {
+                    k = document.createElement('button');
+                    k.id = '__edi_skip_btn';
+                    k.textContent = '이번 사람 건너뛰기';
+                    k.style.cssText = 'position:fixed;left:10px;bottom:58px;z-index:2147483647;'
+                      + 'padding:8px 12px;border-radius:14px;border:1px solid #bbb;background:#fff;'
+                      + 'font:600 13px/1.2 -apple-system,BlinkMacSystemFont,sans-serif;color:#555;cursor:pointer';
+                    k.onclick = () => { window.__edi_skip = 1; k.textContent = '건너뜁니다…'; };
+                    document.body.appendChild(k);
+                }
+                if (!o.skip && k) k.remove();
             }""",
-            {"t": text, "c": color},
+            {"t": text, "c": color, "skip": skip},
         )
     except Exception:
         pass  # 배너는 편의 기능일 뿐, 실패해도 진행에 지장 없다
 
 
-def wait_until_posted(page, timeout=300):
+def wait_until_posted(page, timeout=None):
     """사람이 '등록'을 누를 때까지 기다린다.
     입력칸이 비면 등록된 것으로 본다(네이버는 등록 후 입력칸을 비운다).
-    ★스크립트가 등록을 대신 누르지 않는다는 원칙은 그대로다 — 눌렸는지 '보고만' 있는다."""
-    deadline = time.time() + timeout
-    while time.time() < deadline:
+    ★스크립트가 등록을 대신 누르지 않는다는 원칙은 그대로다 — 눌렸는지 '보고만' 있는다.
+    🔴2026-10-25 에디님: **직접 눌러야 다음으로 넘어간다.** 시간이 지나도 저절로 넘기지 않는다(예전엔 5분 뒤 건너뜀).
+      안 달고 싶으면 화면 왼쪽 아래 「이번 사람 건너뛰기」 → "건너뜀"."""
+    deadline = time.time() + timeout if timeout else None
+    while deadline is None or time.time() < deadline:
         if page.is_closed():
             return "창닫힘"
         try:
-            txt = page.evaluate(
+            st = page.evaluate(
                 """() => {
+                    if (window.__edi_skip) return {skip: true};
                     const vis = el => el && el.offsetParent !== null;
                     const el = [...document.querySelectorAll('textarea, [contenteditable=true]')].find(vis);
-                    if (!el) return null;
-                    return (el.innerText || el.value || '').replace(/\\s/g, '');
+                    if (!el) return {txt: null};
+                    return {txt: (el.innerText || el.value || '').replace(/\\s/g, '')};
                 }"""
             )
         except Exception:
             return "창닫힘"
+        if st and st.get("skip"):
+            return "건너뜀"
+        txt = (st or {}).get("txt")
         if txt is None:
             return "등록됨"  # 입력칸이 사라짐 = 화면이 넘어감
         if len(txt) < 4:
@@ -161,17 +181,20 @@ def wait_until_posted(page, timeout=300):
     return "시간초과"
 
 
-def wait_until_buddy_done(page, timeout=180):
-    """사람이 서이추 '확인'을 누를 때까지 기다린다. 누르면 폼에서 빠져나간다."""
-    deadline = time.time() + timeout
-    while time.time() < deadline:
+def wait_until_buddy_done(page, timeout=None):
+    """사람이 서이추 '확인'을 누를 때까지 기다린다. 누르면 폼에서 빠져나간다.
+    🔴2026-10-25: 댓글과 같다 — 직접 눌러야 넘어가고, 안 하려면 「이번 사람 건너뛰기」."""
+    deadline = time.time() + timeout if timeout else None
+    while deadline is None or time.time() < deadline:
         if page.is_closed():
             return "창닫힘"
         try:
-            gone = page.evaluate("() => !document.querySelector('#bothBuddyRadio')")
+            st = page.evaluate("() => window.__edi_skip ? 'skip' : (document.querySelector('#bothBuddyRadio') ? 'wait' : 'gone')")
         except Exception:
             return "창닫힘"
-        if gone:
+        if st == "skip":
+            return "건너뜀"
+        if st == "gone":
             return "신청됨"
         time.sleep(1.0)
     return "시간초과"
@@ -210,7 +233,25 @@ def fill_comment(page, blog_id, log_no, text, dry=False):
     )
     page.wait_for_timeout(400)
     page.keyboard.type(text, delay=random.randint(18, 45))
+    show_button(page, "등록")
     return "OK"
+
+
+def show_button(page, label):
+    """🔴2026-10-25 에디님: 「댓글쓸 때 나오는 화면이 너무 작거나 커서 등록이 안 보이는 문제」(2기).
+    채운 뒤 그 버튼을 화면 가운데로 끌어온다. 창 크기는 main()에서 화면에 맞춘다(최대화)."""
+    try:
+        page.evaluate(
+            """(label) => {
+                const vis = el => el && el.offsetParent !== null;
+                const b = [...document.querySelectorAll('button, a, [role=button]')]
+                    .filter(vis).find(x => (x.innerText || x.textContent || '').trim() === label);
+                if (b) b.scrollIntoView({block: 'center'});
+            }""",
+            label,
+        )
+    except Exception:
+        pass
 
 
 def open_buddy_form(page, target_blog, message="", dry=False):
@@ -261,6 +302,7 @@ def open_buddy_form(page, target_blog, message="", dry=False):
         }"""
     )
     page.wait_for_timeout(600)
+    page.evaluate("() => window.scrollTo(0, 0)")   # [확인]은 맨 위에 있다
 
     # 신청 메시지 — 왜 이웃하고 싶은지 한 줄이 있으면 수락률이 오른다.
     if message:
@@ -319,7 +361,7 @@ def _loop(page, todo, args, ledger, daily, today, done_today):
                 entry["buddy_blocked"] = today
                 log("  ⓘ 서로이웃을 안 받는 블로그입니다.")
             elif res2.startswith("OK"):
-                banner(page, f"맨 위 [확인]을 눌러 서로이웃 신청   ({i}/{len(todo)})", "#2f6fed")
+                banner(page, f"맨 위 [확인]을 눌러 서로이웃 신청 — 눌러야 다음으로   ({i}/{len(todo)})", "#2f6fed", skip=True)
                 got = wait_until_buddy_done(page)
                 if got == "창닫힘":
                     save_json(LEDGER, ledger)
@@ -334,11 +376,11 @@ def _loop(page, todo, args, ledger, daily, today, done_today):
             daily.setdefault(today, {})[args.blog] = done_today + done
             save_json(DAILY, daily)
             if i < len(todo):
-                wait = max(0, random.randint(50, 90) - int(time.time() - started_at))
+                wait = NEXT_GAP
                 for left in range(wait, 0, -1):
                     if page.is_closed():
                         break
-                    banner(page, f"{left}초 뒤 다음({i+1}/{len(todo)})", "#777")
+                    banner(page, f"{left}초 뒤 다음 사람({i+1}/{len(todo)})", "#777")
                     time.sleep(1)
             continue
 
@@ -361,7 +403,7 @@ def _loop(page, todo, args, ledger, daily, today, done_today):
             continue
 
         # ① 댓글 — 사람이 [등록]을 누를 때까지 화면에서 기다린다(터미널 볼 필요 없음)
-        banner(page, f"① 읽어보고 초록색 [등록]을 누르세요   ({i}/{len(todo)})  ·  건너뛰려면 그냥 두세요")
+        banner(page, f"① 읽어보고 초록색 [등록]을 누르세요 — 눌러야 다음으로 넘어갑니다   ({i}/{len(todo)})", skip=True)
         posted = wait_until_posted(page)
         if posted == "창닫힘":
             log("  창이 닫혔습니다. 여기서 멈춥니다.")
@@ -385,7 +427,7 @@ def _loop(page, todo, args, ledger, daily, today, done_today):
             entry["buddy_blocked"] = today
             log("  ⓘ 서로이웃을 안 받는 블로그입니다. 기록해두고 넘어갑니다.")
         elif res2.startswith("OK"):
-            banner(page, f"② 맨 위 [확인]을 눌러 서로이웃 신청   ({i}/{len(todo)})", "#2f6fed")
+            banner(page, f"② 맨 위 [확인]을 눌러 서로이웃 신청 — 눌러야 다음으로   ({i}/{len(todo)})", "#2f6fed", skip=True)
             got = wait_until_buddy_done(page)
             if got == "창닫힘":
                 save_json(LEDGER, ledger)
@@ -405,12 +447,9 @@ def _loop(page, todo, args, ledger, daily, today, done_today):
         save_json(DAILY, daily)
 
         if i < len(todo):
-            # ★반자동에서는 **에디님이 읽고 누르는 시간 자체가 이미 사람 속도**다.
-            #   거기에 또 1~2분을 얹으면 앉아서 기다리기만 하는 시간이 생긴다(30명에 40분).
-            #   → 한 사람당 '총 간격'을 60~100초로 잡고, 사람이 쓴 시간만큼 빼고 남은 만큼만 쉰다.
-            target = random.randint(60, 100)
+            # 🔴2026-10-25 에디님: 「60초 단위로 넘어가게」 — 사람이 [등록]·[확인]을 누른 뒤 60초 세고 다음 사람.
             spent = int(time.time() - started_at)
-            wait = max(0, target - spent)
+            wait = NEXT_GAP
             log(f"  ✓ 완료 ({done_today + done}/{DAILY_CAP}) — 작업 {spent}초 + 대기 {wait}초")
             for left in range(wait, 0, -1):
                 if page.is_closed():
@@ -513,9 +552,10 @@ def main():
 
         with sync_playwright() as p:
             # ★headless=False — 에디님이 화면을 보고 직접 눌러야 하므로 반드시 보이는 창.
-            browser = p.chromium.launch(headless=args.dry)
-            ctx = browser.new_context(storage_state=sess, user_agent=UA,
-                                      viewport={"width": 430, "height": 930})
+            # 🔴2026-10-25: 예전엔 안쪽 크기를 430×930으로 박아서 **세로가 짧은 노트북에서 [등록]이 화면 밖**으로 나갔다.
+            #   → 창을 화면에 맞춰 최대화하고(no_viewport), 채운 뒤 버튼을 가운데로 끌어온다(show_button).
+            browser = p.chromium.launch(headless=args.dry, args=["--start-maximized"])
+            ctx = browser.new_context(storage_state=sess, user_agent=UA, no_viewport=True)
             page = ctx.new_page()
             done = _loop(page, todo, args, ledger, daily, today, done_today)
             # ★세션 되저장 — 네이버가 갱신해 준 쿠키를 반영해야 로그인이 오래 간다.
