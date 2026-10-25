@@ -5,7 +5,7 @@
 
 하는 일
   1) 기사거리 — 내정보.txt 「내 블로그 주제」로 최근 기사 몇 개(기사거리.py와 같은 검색)
-  2) 클로드(`claude -p`)가 내이야기.md · 홈판채점표.md 를 보고 한 편을 쓴다. 90점 넘긴 최종본만 받는다
+  2) 클로드(`claude -p`)가 내이야기.md(있으면 · 없어도 간다) · 홈판채점표.md 를 보고 한 편을 쓴다
   3) 원고/오늘날짜/NN_키워드_복붙용.txt 로 저장
   4) pipeline.process_post → 맥=에고라이트 · 윈도우=어사이드 CLI 로 **임시저장**
      (어사이드는 2주차처럼 어사이드 AI에게 부탁하지 않는다 — aside_publish.py 가 창을 직접 움직인다)
@@ -82,7 +82,7 @@ PROMPT = """너는 아래 블로그 주인 대신 네이버 블로그 홈판(홈
 [내 블로그]
 {info}
 
-[내 이야기 — 이 중 하나 이상을 글에 꼭 넣는다. 지어내지 않는다]
+[내 이야기 — 있으면 하나 이상 넣는다. 「없음」이면 경험담을 지어내지 않고, 채점표의 「내 경험」 항목은 건너뛰고 나머지로 90점을 맞춘다]
 {story}
 
 [최근 기사거리 — 하나를 골라 오늘 이야깃거리로 쓴다. 기사 문장을 베끼지 않는다]
@@ -112,10 +112,13 @@ def write_post() -> str:
                                               ("한줄소개", myinfo.get("내 블로그 한줄소개"))) if v)
     story = _read(os.path.join(ROOT, "내이야기.md")).strip()
     if not story:
-        raise RuntimeError("내이야기.md 가 없습니다 — 클로드 코드에 「내 이야기 5개 질문해줘」를 먼저 하세요(③)")
+        # 🔴2026-10-25 에디님: 「내이야기 5개는 없어도 될거 같은데? 없으면 그냥 올라갈 수 있게」 — 멈추지 않는다.
+        #   대신 경험을 지어내지 않게 못박는다. 아침에 사람이 내 경험 한 문단을 넣는다.
+        story = "(없음 — 내 경험담을 지어내지 않는다)"
+        log("내이야기.md 가 없어서 내 경험 없이 씁니다(지어내지 않음) — 아침에 내 경험 한 문단을 넣어 발행하세요")
     news = _news(myinfo.topic())
-    news_txt = "\n".join(f"- {n['title']} — {(n.get('snippet') or '')[:120]}" for n in news) or "(오늘은 기사 없음 — 내 이야기로 쓴다)"
-    log(f"기사거리 {len(news)}개 · 내 이야기 {len(story)}자 → 클로드가 씁니다(몇 분 걸립니다)")
+    news_txt = "\n".join(f"- {n['title']} — {(n.get('snippet') or '')[:120]}" for n in news) or "(오늘은 기사 없음 — 내 블로그 주제로 쓴다)"
+    log(f"기사거리 {len(news)}개 → 클로드가 씁니다(몇 분 걸립니다)")
     import claude_cli
     text = claude_cli.run_claude_p(PROMPT.format(info=info, story=story[:3000], news=news_txt,
                                                  score=_read(os.path.join(ROOT, "홈판채점표.md"))[:3000]),
