@@ -75,7 +75,10 @@ def save_json(p, data):
 
 def session_file(blog_id):
     name = f"naver_state_{blog_id}.json"
-    return os.path.join(SESSION_DIR, name)
+    p = os.path.join(SESSION_DIR, name)
+    # 블로그자동의 「네이버 로그인 시켜줘」(naver.login_and_save)는 naver_state.json 으로 저장한다 — 그것도 받는다(10/25)
+    alt = os.path.join(SESSION_DIR, "naver_state.json")
+    return p if os.path.exists(p) or not os.path.exists(alt) else alt
 
 
 def fetch_my_posts(blog_id, count=10):
