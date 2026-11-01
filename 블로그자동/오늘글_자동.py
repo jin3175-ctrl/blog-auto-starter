@@ -7,10 +7,12 @@
   1) 기사거리 — 내정보.txt 「내 블로그 주제」로 최근 기사 몇 개(기사거리.py와 같은 검색)
   2) 클로드(`claude -p`)가 내이야기.md(있으면 · 없어도 간다) · 홈판채점표.md 를 보고 한 편을 쓴다
   3) 원고/오늘날짜/NN_키워드_복붙용.txt 로 저장
-  4) pipeline.process_post → 맥=에고라이트 · 윈도우=어사이드 CLI 로 **임시저장**
+  4) pipeline.process_post → 에고라이트(맥 · 깔린 윈도우) 또는 어사이드 CLI 로 **임시저장**
      (어사이드는 2주차처럼 어사이드 AI에게 부탁하지 않는다 — aside_publish.py 가 창을 직접 움직인다)
 
-🔴임시저장까지만. 발행은 아침에 사람이 내 경험·사진을 넣고 직접 누른다(config.AUTO_PUBLISH=False).
+🔴기본은 임시저장까지. 발행은 아침에 사람이 내 경험·사진을 넣고 직접 누른다.
+🔴내정보.txt 에 「자동 발행: 켜기」가 있으면(4주차 · 에고라이트만) 그날 「발행 시각:」(기본 12:10)으로 **예약 발행**한다.
+   시각이 30분 안으로 다가왔거나 지났으면 발행하지 않고 임시저장으로 둔다.
 기록: work/오늘글_자동.log — 멈추면 이 파일 맨 아랫줄부터 읽는다(3주차 「로그 읽는 법」).
 """
 from __future__ import annotations
@@ -20,13 +22,17 @@ import re
 import shutil
 import sys
 import time
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
 LOG = os.path.join(HERE, "work", "오늘글_자동.log")
 LOCK = os.path.join(HERE, "work", "오늘글_자동.lock")
+
+
+if hasattr(sys.stdout, "reconfigure"):      # 🔴한글 윈도우 콘솔·예약 실행은 cp949 — ✓ 같은 글자에서 죽지 않게
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 
 def log(msg: str):
@@ -147,6 +153,22 @@ def save_manuscript(text: str) -> tuple:
     return no, folder, title
 
 
+def reserve_time(now=None):
+    """오늘 자동 발행할 시각. 스위치가 꺼졌거나 시각이 코앞이면 None(임시저장)."""
+    import config
+    if not config.AUTO_PUBLISH:
+        return None
+    import myinfo
+    m = re.match(r"^\s*(\d{1,2})[:：](\d{2})", myinfo.get("발행 시각") or "12:10")
+    h, mi = (int(m.group(1)), int(m.group(2))) if m else (12, 10)
+    now = now or datetime.now()
+    at = now.replace(hour=h, minute=mi // 10 * 10, second=0, microsecond=0)
+    if at - now < timedelta(minutes=30):
+        log(f"발행 시각 {h:02d}:{mi:02d} 이 30분 안이거나 지났습니다 → 오늘은 임시저장으로 둡니다")
+        return None
+    return at
+
+
 def main(argv) -> int:
     dry = "--dry" in argv
     if os.path.exists(LOCK) and time.time() - os.path.getmtime(LOCK) < 3 * 3600:
@@ -170,13 +192,15 @@ def main(argv) -> int:
             log("✓ 원고만 만들었습니다(--dry)")
             return 0
         import pipeline
-        r = pipeline.process_post(no, log, publish=False, folder=folder)
+        at = reserve_time()
+        r = pipeline.process_post(no, log, publish=bool(at), folder=folder, reserve_at=at)
         if r.get("ok"):
-            log(f"✓ 임시저장 끝 — {r.get('message', '')} · 아침에 네이버 「저장」 목록에서 열어 내 경험·사진을 넣고 발행하세요")
+            log(f"✓ {at:%H:%M} 예약 발행 — {r.get('message', '')}" if at else
+                f"✓ 임시저장 끝 — {r.get('message', '')} · 아침에 네이버 「저장」 목록에서 열어 내 경험·사진을 넣고 발행하세요")
             for n in r.get("notes") or []:
                 log("  · " + str(n))
             return 0
-        log(f"✗ 임시저장 실패: {r.get('message', '')[:300]}")
+        log(f"✗ {'예약 발행' if at else '임시저장'} 실패: {r.get('message', '')[:300]}")
         return 1
     finally:
         try:

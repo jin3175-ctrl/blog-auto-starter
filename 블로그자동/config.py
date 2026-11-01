@@ -21,8 +21,15 @@ os.makedirs(WORK_DIR, exist_ok=True)
 
 # ★발행 스위치(2026-10-17 · 3기 2주차): 수강생 패키지는 **임시저장만** 한다.
 #   False면 publish=True·예약 시각을 넘겨도 전부 임시저장으로 바뀐다(pipeline.process_post에서 막음).
-#   예약 발행은 3주차에 직접 True로 바꾸며 배운다.
+#   🔴2026-11-01(3기 4주차): 내정보.txt 에 「자동 발행: 켜기」 한 줄이면 True — 코드를 고치지 않는다.
+#   순서는 언제나 임시저장으로 먼저 확인 → 익숙해지면 자동 발행. 예약 발행은 에고라이트에서만 된다.
 AUTO_PUBLISH = False
+for _d in (os.path.dirname(os.path.abspath(__file__)), os.path.dirname(os.path.dirname(os.path.abspath(__file__)))):
+    try:
+        AUTO_PUBLISH = bool(re.search(r"^자동\s*발행\s*[:：]\s*켜기", open(os.path.join(_d, "내정보.txt"), encoding="utf-8").read(), re.M))
+    except OSError:
+        continue
+    break
 
 
 def today_str() -> str:

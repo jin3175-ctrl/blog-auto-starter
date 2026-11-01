@@ -46,7 +46,8 @@ def mode() -> str:
         return "aside"
     if v in ("크롬", "chrome"):
         return "chrome"
-    return "ego" if sys.platform == "darwin" else "aside"
+    # 🔴2026-11-01 에디님: 윈도우도 에고라이트로. 깔려 있으면 에고, 없으면 지금처럼 어사이드(못 깐 분도 그대로 돈다).
+    return "ego" if sys.platform == "darwin" or ego_bin() else "aside"
 
 
 def _blog_id() -> str:
@@ -60,13 +61,11 @@ def _blog_id() -> str:
         return ""
 
 
-# ── 에고라이트 (맥) ─────────────────────────────────────────────
+# ── 에고라이트 (맥 · 윈도우) ─────────────────────────────────────────────
 
 def ego_bin() -> str:
-    for c in (shutil.which("ego-browser"), os.path.expanduser("~/.local/bin/ego-browser")):
-        if c and os.path.exists(c):
-            return c
-    return ""
+    import aside_publish            # 이웃관리/ 를 sys.path에 넣어 준다 — 찾는 법은 browser_drive 한 곳에만 둔다
+    return aside_publish.browser_drive.ego_bin()
 
 
 def _ego_run(src: str, timeout: int) -> str:
@@ -74,7 +73,8 @@ def _ego_run(src: str, timeout: int) -> str:
     if not b:
         raise RuntimeError("에고라이트가 없습니다 — https://lite.ego.app 에서 설치하고, 앱을 한 번 열어 "
                            "첫 화면(온보딩)을 끝내 주세요.")
-    proc = subprocess.run([b, "nodejs"], input=src, text=True, capture_output=True, timeout=timeout)
+    proc = subprocess.run([b, "nodejs"], input=src, text=True, encoding="utf-8", errors="replace",
+                          capture_output=True, timeout=timeout)   # 🔴한글 윈도우 기본은 cp949 — utf-8로 못박는다
     return (proc.stdout or "") + "\n" + (proc.stderr or "")
 
 
@@ -105,18 +105,22 @@ def ego_session(log=print) -> tuple:
     return False, "에고라이트 상태를 확인하지 못했습니다: " + out.strip()[-160:]
 
 
-def _ego_draft(title, blocks, log, category="", align="", ai_mark=True) -> dict:
+def _ego_draft(title, blocks, log, category="", align="", ai_mark=True, reserve_at=None) -> dict:
+    """reserve_at=None → 임시저장. datetime → 그 시각으로 **예약 발행**(4주차 · 분은 10분 단위로 내림)."""
     os.makedirs(config.WORK_DIR, exist_ok=True)
     tmp = os.path.join(config.WORK_DIR, "ego_payload.json")
     tags = next((b.get("text", "") for b in blocks if b.get("type") == "hashtags"), "")
     payload = {"blogId": _blog_id(), "no": "1", "title": title, "blocks": blocks,
-               "category": category, "align": align, "tags": tags, "mode": "draft",
-               "schedule": None, "dryPublish": False, "aiMark": bool(ai_mark),
+               "category": category, "align": align, "tags": tags,
+               "mode": "publish" if reserve_at else "draft",
+               "schedule": ({"date": reserve_at.strftime("%Y.%m.%d"), "hour": reserve_at.strftime("%H"),
+                             "minute": f"{reserve_at.minute // 10 * 10:02d}"} if reserve_at else None),
+               "dryPublish": False, "aiMark": bool(ai_mark),
                "spaceName": SPACE_NAME}
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, default=str)
     src = f"const PAYLOAD_PATH = {json.dumps(tmp)};\n" + open(DRIVER, encoding="utf-8").read()
-    log("에고라이트로 글쓰기 화면을 열어 넣습니다(임시저장까지만)…")
+    log("에고라이트로 글쓰기 화면을 열어 넣습니다(" + (f"{reserve_at:%m/%d %H:%M} 예약 발행" if reserve_at else "임시저장까지만") + ")…")
     try:
         out = _ego_run(src, 2400)
     except Exception as e:  # noqa: BLE001
@@ -134,7 +138,8 @@ def _ego_draft(title, blocks, log, category="", align="", ai_mark=True) -> dict:
             except Exception:  # noqa: BLE001
                 continue
             if r.get("ok"):
-                return {"ok": True, "message": f"에고라이트 임시저장 완료 · 사진 {r.get('images', 0)}장",
+                what = f"{reserve_at:%m/%d %H:%M} 예약 발행" if reserve_at else "임시저장"
+                return {"ok": True, "message": f"에고라이트 {what} 완료 · 사진 {r.get('images', 0)}장",
                         "notes": r.get("notes") or []}
             return {"ok": False, "message": "에고라이트 실패: " + str(r.get("why") or r)[:300]}
     return {"ok": False, "message": "에고라이트 실패: " + out.strip()[-300:]}
@@ -252,10 +257,16 @@ def session_ok(log=print) -> tuple:
 
 
 def save_draft(title, blocks, thumb, log, category="", align="", ai_mark=True,
-               post_no="01", folder=None) -> dict:
+               post_no="01", folder=None, reserve_at=None) -> dict:
     m = mode()
+    if reserve_at and any(b.get("type") == "photo" for b in blocks):
+        # 빈 [사진N] 자리가 그대로 공개되면 안 된다 — 그날은 사람이 보게 임시저장으로 내려 둔다
+        log("⚠ 못 찾은 사진 자리가 있어서 예약 발행하지 않고 임시저장합니다 — 사진을 넣어 직접 발행하세요.")
+        reserve_at = None
     if m == "ego":
-        return _ego_draft(title, blocks, log, category=category, align=align, ai_mark=ai_mark)
+        return _ego_draft(title, blocks, log, category=category, align=align, ai_mark=ai_mark, reserve_at=reserve_at)
+    if reserve_at:
+        log("⚠ 예약 발행은 에고라이트에서만 됩니다(어사이드는 임시저장까지) → 임시저장으로 합니다.")
     if m == "aside":
         # 🔴2026-10-25 — 어사이드 CLI가 있으면 프로그램이 글쓰기 화면에 직접 넣고 임시저장한다(aside_publish.py).
         #   CLI가 없거나 중간에 실패하면 예전 방식(.html + Ask 칸 프롬프트)으로 넘어간다.

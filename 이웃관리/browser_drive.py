@@ -76,8 +76,25 @@ def aside_bin() -> str:
     return ""
 
 
+def _win_user_path() -> str:
+    """윈도우 사용자 PATH(레지스트리). 에고라이트는 온보딩 때 PATH에 등록하는데, 이미 열린 창에는
+    안 들어온다(공식 install.md). 그래서 지금 환경변수만 보지 않고 레지스트리도 본다. 🔴윈도우 실기 미확인."""
+    if os.name != "nt":
+        return ""
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment") as k:
+            return os.path.expandvars(winreg.QueryValueEx(k, "Path")[0])
+    except OSError:
+        return ""
+
+
 def ego_bin() -> str:
-    for c in (shutil.which("ego-browser"), os.path.expanduser("~/.local/bin/ego-browser")):
+    """ego-browser 찾기 — 맥은 ~/.local/bin, 윈도우는 PATH(레지스트리 포함). 🔴윈도우 실기 미확인(2026-11-01)."""
+    home = os.path.expanduser("~/.local/bin")
+    cands = [shutil.which("ego-browser"), shutil.which("ego-browser", path=_win_user_path() or None) if os.name == "nt" else None]
+    cands += [os.path.join(home, "ego-browser" + ext) for ext in ("", ".exe", ".cmd")]
+    for c in cands:
         if c and os.path.exists(c):
             return c
     return ""
@@ -219,7 +236,8 @@ class EgoPage:
                f'try {{ const __v = await (async () => {{\n{body}\n}})();\n'
                f'  console.log({json.dumps(tag)} + JSON.stringify({{ok: true, v: __v ?? null}})); }}\n'
                f'catch (e) {{ console.log({json.dumps(tag)} + JSON.stringify({{ok: false, e: String(e).slice(0, 300)}})); }}\n')
-        p = subprocess.run([self._b, "nodejs"], input=src, text=True, capture_output=True, timeout=timeout)
+        p = subprocess.run([self._b, "nodejs"], input=src, text=True, encoding="utf-8", errors="replace",
+                           capture_output=True, timeout=timeout)   # 🔴한글 윈도우 기본은 cp949 — utf-8로 못박는다
         # 결과 줄이 stderr 쪽에 섞여 나올 때가 있다(업데이트 안내와 같이 — 10/24 실측). 둘 다 본다.
         for line in ((p.stdout or "") + "\n" + (p.stderr or "")).splitlines():
             i = line.find(tag)

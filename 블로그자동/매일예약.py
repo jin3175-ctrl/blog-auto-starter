@@ -6,7 +6,7 @@
 
 맥 = launchd(~/Library/LaunchAgents/com.homepan.todaypost.plist) · 윈도우 = 작업 스케줄러(「블로그 오늘글」)
 🔴노트북이 켜져 있어야 돈다. 뚜껑을 닫으면 잠들어서 안 돈다. 맥은 caffeinate로 도는 동안만 깨워 둔다.
-🔴맥은 에고라이트, 윈도우는 어사이드 앱이 **켜져 있어야** 임시저장까지 간다(꺼져 있으면 원고만 남고 로그에 이유가 적힌다).
+🔴에고라이트(맥 · 깔린 윈도우) 또는 어사이드 앱이 **켜져 있어야** 임시저장까지 간다(꺼져 있으면 원고만 남고 로그에 이유가 적힌다).
 """
 from __future__ import annotations
 
@@ -64,7 +64,8 @@ def on(t: str) -> int:
         return 1
     print(f"✓ 매일 {h:02d}:{m:02d}에 글 한 편을 써서 임시저장합니다.")
     print("  · 노트북을 켜 두세요(뚜껑 닫으면 안 돕니다)")
-    print("  · " + ("에고라이트" if sys.platform == "darwin" else "어사이드") + "를 켜 두세요")
+    import browser_upload
+    print("  · " + ("에고라이트" if browser_upload.mode() == "ego" else "어사이드") + "를 켜 두세요")
     print("  · 결과는 블로그자동/work/오늘글_자동.log — 아침에 네이버 「저장」 목록에서 열어 고친 뒤 직접 발행")
     return 0
 
@@ -95,6 +96,8 @@ def status() -> int:
 
 
 if __name__ == "__main__":
+    if hasattr(sys.stdout, "reconfigure"):   # 🔴한글 윈도우 cp949 — ✓ 에서 죽지 않게
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     a = sys.argv[1:]
     cmd = a[0] if a else "상태"
     if cmd in ("켜기", "on"):
