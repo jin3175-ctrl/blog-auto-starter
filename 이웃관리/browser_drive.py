@@ -54,7 +54,43 @@ def mode() -> str:
         return "ego"
     if v in ("어사이드", "aside"):
         return "aside"
-    return "chrome"
+    if v in ("크롬", "chrome"):
+        return "chrome"
+    # 🔴2026-11-01 에디님: 댓글·대댓글·서이추도 맥·윈도우 모두 에고라이트. 없으면 크롬으로 남긴다.
+    return "ego" if ego_bin() else "chrome"
+
+
+def auto_on() -> bool:
+    """내정보.txt 「댓글 자동 등록: 켜기」 — 기본은 꺼짐. 켜야만 [등록]·[확인]을 프로그램이 누른다(2026-11-01 에디님)."""
+    for d in (os.path.dirname(HERE), HERE):
+        try:
+            return bool(re.search(r"^댓글\s*자동\s*등록\s*[:：]\s*켜기",
+                                  open(os.path.join(d, "내정보.txt"), encoding="utf-8").read(), re.M))
+        except OSError:
+            continue
+    return False
+
+
+def blocked(page) -> bool:
+    """네이버가 막는 화면이면 True. 🔴풀려고 하지 않는다 — 바로 멈추고 사람에게 넘긴다."""
+    try:
+        t = page.evaluate("() => (document.body.innerText || '').slice(0, 4000)") or ""
+    except Exception:  # noqa: BLE001
+        return False
+    return bool(re.search(r"자동입력\s*방지|보호조치|비정상적인|이용이 제한|일시적으로 제한|스팸", t))
+
+
+def press(page, label: str) -> bool:
+    """보이는 버튼 중 글자가 정확히 label인 것을 누른다."""
+    return bool(page.evaluate(
+        """(label) => {
+            const vis = el => el && el.offsetParent !== null;
+            const b = [...document.querySelectorAll('button, a, [role=button]')]
+                .filter(vis).find(x => (x.innerText || x.textContent || '').trim() === label);
+            if (!b) return false;
+            b.scrollIntoView({block: 'center'}); b.click();
+            return true;
+        }""", label))
 
 
 def _one_line(js: str) -> str:

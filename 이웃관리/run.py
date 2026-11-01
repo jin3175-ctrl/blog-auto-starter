@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 """
-블로그 이웃관리 3단계 — 반자동 실행 (댓글 + 서로이웃 신청).
+블로그 이웃관리 3·4단계 — 댓글 + 서로이웃 신청.
 
-★이 스크립트는 **등록/확인 버튼을 절대 누르지 않는다.**
-  글을 열고, 초안을 입력칸에 채워놓는 데까지만 한다. 최종 클릭은 항상 에디님이 한다.
-  그래서 기계적인 클릭 패턴이 안 생기고, 잘못된 댓글이 나갈 일도 없다.
+★기본은 반자동이다 — **등록/확인 버튼을 누르지 않는다.** 글을 열고 초안을 채워놓는 데까지만 한다.
+★4단계(2026-11-01 에디님 결정): 내정보.txt 「댓글 자동 등록: 켜기」 + `--auto` 일 때만 프로그램이 누른다.
+  초안을 사람이 안 읽는다는 뜻이다. 네이버 운영정책 위반 소지가 있고 계정이 제재될 수 있다 — 주인이 알고 켠다.
+  막는 화면(자동입력 방지·보호조치 등)이 보이면 풀지 않고 즉시 멈춘다.
 
 사용법:
   python3 run.py                               # 오늘치(기본 30명)
   python3 run.py --limit 10
   python3 run.py --dry                         # 아무것도 입력하지 않고 화면만 점검
+  python3 run.py --auto --limit 10             # 4단계 — 프로그램이 [등록]·[확인]까지(스위치 필요)
 
 브라우저(2026-10-25): 크롬 반자동이 기본(2기 4주차 방식) — 처음 한 번 `python 크롬_로그인.py`로 본인이 로그인.
   (에고라이트·어사이드 길은 내정보.txt 「이웃관리 브라우저: 에고/어사이드」 — browser_drive.py)
@@ -323,6 +325,21 @@ def open_buddy_form(page, target_blog, message="", dry=False):
     return "OK"
 
 
+def settle(page, args, label, waiter, text, color):
+    """[등록]·[확인] 한 번. 사람이 누르기를 기다리거나(기본) 프로그램이 누른다(--auto)."""
+    if not args.auto:
+        banner(page, text, color, skip=True)
+        return waiter(page)
+    if browser_drive.blocked(page):
+        return "막힘"
+    banner(page, f"자동 {label} 중", "#777")
+    page.wait_for_timeout(2000)
+    if not browser_drive.press(page, label):
+        return "버튼없음"
+    got = waiter(page, timeout=20)
+    return "막힘" if got != "창닫힘" and browser_drive.blocked(page) else got
+
+
 # ───────────────────────── 메인 ─────────────────────────
 
 def _loop(page, todo, args, ledger, daily, today, done_today):
@@ -361,8 +378,12 @@ def _loop(page, todo, args, ledger, daily, today, done_today):
                 entry["buddy_blocked"] = today
                 log("  ⓘ 서로이웃을 안 받는 블로그입니다.")
             elif res2.startswith("OK"):
-                banner(page, f"맨 위 [확인]을 눌러 서로이웃 신청 — 눌러야 다음으로   ({i}/{len(todo)})", "#2f6fed", skip=True)
-                got = wait_until_buddy_done(page)
+                got = settle(page, args, "확인", wait_until_buddy_done,
+                             f"맨 위 [확인]을 눌러 서로이웃 신청 — 눌러야 다음으로   ({i}/{len(todo)})", "#2f6fed")
+                if got == "막힘":
+                    log("🔴네이버가 막는 화면이 나왔습니다. 여기서 멈춥니다 — 직접 확인하고 오늘은 더 하지 마세요.")
+                    save_json(LEDGER, ledger)
+                    break
                 if got == "창닫힘":
                     save_json(LEDGER, ledger)
                     break
@@ -403,8 +424,18 @@ def _loop(page, todo, args, ledger, daily, today, done_today):
             continue
 
         # ① 댓글 — 사람이 [등록]을 누를 때까지 화면에서 기다린다(터미널 볼 필요 없음)
-        banner(page, f"① 읽어보고 초록색 [등록]을 누르세요 — 눌러야 다음으로 넘어갑니다   ({i}/{len(todo)})", skip=True)
-        posted = wait_until_posted(page)
+        posted = settle(page, args, "등록", wait_until_posted,
+                        f"① 읽어보고 초록색 [등록]을 누르세요 — 눌러야 다음으로 넘어갑니다   ({i}/{len(todo)})", "#03c75a")
+        if posted == "막힘":
+            log("🔴네이버가 막는 화면이 나왔습니다. 여기서 멈춥니다 — 직접 확인하고 오늘은 더 하지 마세요.")
+            break
+        if args.auto and posted in ("버튼없음", "시간초과"):
+            fails += 1
+            log(f"  ⚠ 등록 안 됨({posted}) (연속 실패 {fails}/{FAIL_STOP})")
+            if fails >= FAIL_STOP:
+                log("연속 실패가 많습니다. 오늘은 여기서 멈춥니다.")
+                break
+            continue
         if posted == "창닫힘":
             log("  창이 닫혔습니다. 여기서 멈춥니다.")
             break
@@ -427,8 +458,12 @@ def _loop(page, todo, args, ledger, daily, today, done_today):
             entry["buddy_blocked"] = today
             log("  ⓘ 서로이웃을 안 받는 블로그입니다. 기록해두고 넘어갑니다.")
         elif res2.startswith("OK"):
-            banner(page, f"② 맨 위 [확인]을 눌러 서로이웃 신청 — 눌러야 다음으로   ({i}/{len(todo)})", "#2f6fed", skip=True)
-            got = wait_until_buddy_done(page)
+            got = settle(page, args, "확인", wait_until_buddy_done,
+                         f"② 맨 위 [확인]을 눌러 서로이웃 신청 — 눌러야 다음으로   ({i}/{len(todo)})", "#2f6fed")
+            if got == "막힘":
+                save_json(LEDGER, ledger)
+                log("🔴네이버가 막는 화면이 나왔습니다. 여기서 멈춥니다 — 직접 확인하고 오늘은 더 하지 마세요.")
+                break
             if got == "창닫힘":
                 save_json(LEDGER, ledger)
                 log("  창이 닫혔습니다. 여기서 멈춥니다.")
@@ -466,6 +501,7 @@ def main():
     ap.add_argument("--csv", default="", help="초안 CSV (없으면 가장 최근)")
     ap.add_argument("--limit", type=int, default=DAILY_CAP)
     ap.add_argument("--dry", action="store_true", help="입력·신청 없이 화면 구조만 점검")
+    ap.add_argument("--auto", action="store_true", help="4단계 — [등록]·[확인]까지 프로그램이(내정보.txt 스위치 필요)")
     ap.add_argument(
         "--buddy-only",
         action="store_true",
@@ -473,6 +509,9 @@ def main():
     )
     args = ap.parse_args()
     args.blog = args.blog or myinfo.blog_id()   # 비었으면 내정보.txt
+    if args.auto and not browser_drive.auto_on():
+        log("자동 등록이 꺼져 있습니다. 내정보.txt 에 「댓글 자동 등록: 켜기」 한 줄이 있어야 합니다(CLAUDE.md §B-2 위험 설명 먼저).")
+        return 1
 
     limit = min(args.limit, DAILY_CAP)
     today = date.today().isoformat()

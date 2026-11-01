@@ -428,6 +428,50 @@ async function insertQuote(b) {
   } catch {}
 }
 
+// 쇼핑커넥트 카드 — 검색 결과에서 **수수료가 높은 상품**을 고른다(같은 율이면 비싼 쪽 · 2026-10-29 에디님).
+//   검색 결과가 없으면 달지 않는다(다른 제품을 붙이지 않는다). 🔴이 경로는 실제 네이버에서 시험 전(2026-11-01).
+async function insertConnect(query) {
+  const q = String(query || "").trim();
+  if (!q) return false;
+  try {
+    await page.click('css=button[data-name="shopping-connect"], button.se-shopping-connect-toolbar-button >> nth=0', { label: "open shopping connect" });
+    await page.waitForSelector("css=input.se-popup-search-input", { state: "visible", timeout: 8000 });
+    await page.fill("css=input.se-popup-search-input", q);
+    await page.waitForTimeout(300);
+    await page.keyboard.press("Enter");
+    await page.waitForSelector("css=li.se-shopping-connect-item", { state: "visible", timeout: 9000 });
+    const best = await page.evaluate(() => {
+      const f = document.querySelector("#mainFrame");
+      const d = (f && f.contentDocument) ? f.contentDocument : document;
+      const rows = [...d.querySelectorAll("li.se-shopping-connect-item")].slice(0, 20).map((el, i) => {
+        const t = (el.innerText || "").replace(/\s+/g, " ");
+        const r = t.match(/수수료\s*(\d+)%/), p = t.match(/([\d,]{4,})\s*원/);
+        return { i, rate: r ? +r[1] : 0, price: p ? +p[1].replace(/,/g, "") : 0 };
+      });
+      rows.sort((a, b) => b.rate - a.rate || b.price - a.price);
+      const w = rows[0];
+      if (!w) return null;
+      d.querySelectorAll("li.se-shopping-connect-item")[w.i].click();
+      return w;
+    });
+    if (!best) { await page.keyboard.press("Escape"); return false; }
+    log("  [쇼핑커넥트]", q, "· 수수료", best.rate + "%", "·", best.price, "원");
+    await page.waitForTimeout(700);
+    await page.evaluate(() => {
+      const f = document.querySelector("#mainFrame");
+      const d = (f && f.contentDocument) ? f.contentDocument : document;
+      const b = d.querySelector("button.se-popup-button-confirm");
+      if (b) b.click();
+    });
+    await page.waitForTimeout(1800);
+    await exitBlock();
+    return true;
+  } catch (e) {
+    try { await page.keyboard.press("Escape"); } catch {}
+    return false;
+  }
+}
+
 async function insertOgLink(url) {
   try {
     await page.click("css=button.se-oglink-toolbar-button", { label: "open link popup" });
@@ -488,6 +532,8 @@ for (const b of P.blocks) {
       // 🔴주소를 본문에 그냥 치면 카드가 안 되고 «주소 글자»가 그대로 남는다(2026-09-23 실측).
       //   반드시 «링크» 버튼 팝업으로 넣는다(naver._insert_oglink와 같은 절차).
       if (!(await insertOgLink(b.url))) notes.push(`링크 카드 실패(건너뜀): ${b.url.slice(-14)}`);
+    } else if (t === "connect") {
+      if (!(await insertConnect(b.query))) notes.push(`쇼핑커넥트 못 넣음(직접 넣기): ${String(b.query).slice(0, 20)}`);
     } else if (t === "table_paste") {
       // 표는 «HTML을 클립보드로 붙여넣어» 네이버 네이티브 표로 만든다(naver._paste_table과 같은 방식).
       try {

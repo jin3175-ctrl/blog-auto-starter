@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
 """
-내 글에 달린 댓글에 **답글** 달기 (반자동).
+내 글에 달린 댓글에 **답글(대댓글)** 달기.
 
 왜 필요한가 — 답글을 안 달면 애써 만든 관계가 거기서 끊긴다.
 실측: 내가 댓글 단 8명 중 6명(75%)이 내 블로그로 답방을 왔다. 이게 가장 값진 그룹인데,
 `draft.py`/`run.py`는 ledger에 기록이 있으면 제외해서 **이들을 영원히 빠뜨린다.** 그 구멍을 메운다.
 
-★스크립트는 '등록'을 절대 누르지 않는다. 답글창을 열고 초안을 채워놓는 데까지만 한다.
+★기본은 '등록'을 누르지 않는다. 답글창을 열고 초안을 채워놓는 데까지만 한다.
+★내정보.txt 「댓글 자동 등록: 켜기」 + `--auto` 일 때만 프로그램이 누른다(2026-11-01 · CLAUDE.md §B-2).
 
 사용법:
   python3 reply.py --posts 10                        # 답글 달 댓글 찾아 초안까지
   python3 reply.py --dry                             # 아무것도 입력 안 하고 점검만
+  python3 reply.py --posts 10 --limit 10 --auto      # 등록까지 프로그램이(스위치 필요)
 
 내 블로그에서 하는 일이라 남의 블로그에 다는 것보다 위험이 훨씬 낮다.
 그래도 답글 내용은 사람이 보고 누른다.
@@ -41,7 +43,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 WORK_DIR = os.path.join(BASE_DIR, "work")
 LEDGER = os.path.join(WORK_DIR, "ledger.json")
 REPLIED = os.path.join(WORK_DIR, "replied.json")  # 같은 댓글에 두 번 답글 다는 것 방지
-SESSION_DIR = "/Users/edi/블로그 체험단/session"
+SESSION_DIR = os.path.join(os.path.dirname(BASE_DIR), "블로그자동", "session")
 
 UA = (
     "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) "
@@ -334,9 +336,31 @@ def _replies(page, args, me, posts, ledger, replied, today):
                 print("  ⚠ 답글창에 글이 안 들어갔습니다. 이 건은 건너뜁니다(기록도 안 남김).")
                 continue
 
-            banner(page, f"답글이 채워졌습니다 — [등록]을 누르세요  ({done+1})")
-            # 사람이 등록할 때까지 기다린다(입력칸이 비면 등록된 것)
-            deadline = time.time() + 240
+            if getattr(args, "auto", False):
+                import browser_drive
+                if browser_drive.blocked(page):
+                    log("🔴네이버가 막는 화면이 나왔습니다. 여기서 멈춥니다 — 직접 확인하고 오늘은 더 하지 마세요.")
+                    return done
+                page.wait_for_timeout(2000)
+                pressed = page.evaluate(
+                    """() => {
+                        const vis = el => el && el.offsetParent !== null;
+                        const el = [...document.querySelectorAll('.u_cbox_text, textarea')].filter(vis)
+                            .find(e => e.closest('.u_cbox_reply_area, .u_cbox_reply'));
+                        const area = el && el.closest('.u_cbox_reply_area, .u_cbox_reply');
+                        const b = area && [...area.querySelectorAll('button, a')].filter(vis)
+                            .find(x => (x.innerText || x.textContent || '').trim() === '등록');
+                        if (b) { b.click(); return true; }
+                        return false;
+                    }"""
+                )
+                if not pressed:
+                    print("  ⚠ 답글 [등록] 버튼을 못 찾았습니다. 건너뜁니다.")
+                    continue
+            else:
+                banner(page, f"답글이 채워졌습니다 — [등록]을 누르세요  ({done+1})")
+            # 입력칸이 비면 등록된 것(사람이 누르든 프로그램이 누르든 같다)
+            deadline = time.time() + (20 if getattr(args, "auto", False) else 240)
             posted = False
             while time.time() < deadline:
                 if page.is_closed():
@@ -362,7 +386,7 @@ def _replies(page, args, me, posts, ledger, replied, today):
                 save_json(REPLIED, replied)
                 done += 1
                 log(f"  ✓ 답글 등록됨 ({done})")
-                time.sleep(random.randint(8, 25))  # 답글은 내 블로그라 위험이 낮다 — 짧게
+                time.sleep(60 if getattr(args, "auto", False) else random.randint(8, 25))  # 자동은 60초 간격
             else:
                 log("  건너뜀")
     return done
@@ -373,8 +397,15 @@ def main():
     ap.add_argument("--posts", type=int, default=10, help="훑을 내 최근 글 수")
     ap.add_argument("--limit", type=int, default=20, help="한 번에 처리할 댓글 수")
     ap.add_argument("--dry", action="store_true")
+    ap.add_argument("--auto", action="store_true", help="등록까지 프로그램이(내정보.txt 스위치 필요)")
     args = ap.parse_args()
     args.blog = args.blog or myinfo.blog_id()   # 비었으면 내정보.txt
+    if args.auto:
+        _sys.path.insert(0, BASE_DIR)
+        import browser_drive
+        if not browser_drive.auto_on():
+            log("자동 등록이 꺼져 있습니다. 내정보.txt 에 「댓글 자동 등록: 켜기」 한 줄이 있어야 합니다.")
+            return 1
 
     my = me(args.blog)   # 🔴예전엔 `me = me(...)` 라서 실행하자마자 UnboundLocalError(2026-10-24 발견)
     if not my:
